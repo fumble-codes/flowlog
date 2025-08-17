@@ -13,13 +13,15 @@ A modern **command-line productivity tracker** to:
 
 ## 📁 Folder Structure
 
-cli-project-tracker/
-│
+cli-project-tracker/ <br>
+│ <br>
 ├── main.py              # CLI entry point (Typer commands + Rich UI)
+<br>
 ├── db.py                # All DB logic: connect, CRUD, queries
-├── validators.py        # Validation for title, status, tags, etc
-├── project_meta.md      # Project overview / roadmap
-└── flowlog.exe          # (Optional) Built executable via PyInstaller
+<br>
+├── validators.py        # Validation for title, status, tags, etc <br>
+├── project_meta.md      # Project overview / roadmap <br>
+└── flowlog.exe          # (Optional) Built executable via PyInstaller <br>
 
 ---
 
