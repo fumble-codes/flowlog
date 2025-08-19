@@ -333,12 +333,12 @@ def update(
     # Progress
     while True:
         progress_input = typer.prompt(
-            f"New progress? (0–100) [current: {row[5]}] (press Enter to keep current)",
+            f"New progress? (0–100) [current: {row[4]}] (press Enter to keep current)",
             default=""
         )
 
         if progress_input.strip() == "":
-            progress = row[5]  # no change
+            progress = row[4]  # no change
             break
 
         try:
@@ -351,11 +351,11 @@ def update(
             console.print("[red]Progress must be a number between 0 and 100[/]")
     # Tags
     tags_input = typer.prompt(
-        f"New tags? (comma-separated) [current: {row[6]}] (press Enter to keep current)",
+        f"New tags? (comma-separated) [current: {row[7]}] (press Enter to keep current)",
         default=""
     )
     if tags_input.strip() == "":
-        tags = row[6]  # keep current
+        tags = row[7]  # keep current
     else:
         tags = tags_input.strip()   
 
