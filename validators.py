@@ -1,5 +1,5 @@
 def validate_status(status):
-    valid_statuses = ["TODO", "WIP", "DONE"]
+    valid_statuses = ["TODO", "WIP", "DONE","FAIL"]
     if status.upper() not in valid_statuses:
         raise ValueError(f"Invalid status: {status}. Use one of {valid_statuses}")
 
