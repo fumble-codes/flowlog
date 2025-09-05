@@ -11,7 +11,7 @@ import os
 from rich.table import box
 from rich.align import Align
 import pyfiglet
-from db import get_status_counts, get_due_on
+from db import get_status_counts, get_due_on 
 from table_style import styled_table as Table
 from db import get_db_connection
 from validators import validate_title, validate_status
@@ -98,7 +98,7 @@ def home():
         if due_str:
             try:
                 due_date_obj = datetime.strptime(due_str, "%Y-%m-%d").date()
-                if due_date_obj >= today:
+                if due_date_obj > today:
                     upcoming.append((due_date_obj, row))
             except ValueError:
                 pass
@@ -178,12 +178,12 @@ def add():
     description = typer.prompt("Enter description", default="").strip()
 
     # --- Status (must be one of TODO/WIP/DONE) ---
-    allowed_status = ("TODO", "WIP", "DONE")
+    allowed_status = ("TODO", "WIP", "DONE", "FAILED")
     while True:
         status = typer.prompt("Enter the status [TODO/WIP/DONE]", default="TODO").strip().upper()
         if status in allowed_status:
             break
-        console.print("[red]Status must be TODO, WIP, or DONE. Try again.[/]")
+        console.print("[red]Status must be TODO, WIP , FAILED or DONE. Try again.[/]")
 
     # --- Progress (0–100, blank => 0) ---
     while True:
@@ -292,9 +292,10 @@ def update(
     log_id: int = typer.Argument(..., help="ID of the log to update"),
     title: str = typer.Option(None, "--title", "-t", help="New title"),
     description: str = typer.Option(None, "--desc", "-d", help="New description"),
-    status: str = typer.Option(None, "--status", "-s", help="New status (TODO/WIP/DONE)"),
+    status: str = typer.Option(None, "--status", "-s", help="New status (TODO/WIP/DONE/FAILED)"),
     progress: int = typer.Option(None, "--progress", "-p", help="New progress (0–100)"),
-    tags: str=typer.Option(None,"--tags","-t2", help="New tags in comma seperated value ")
+    tags: str=typer.Option(None,"--tags","-t2", help="New tags in comma seperated value "),
+    due: str = typer.Option(None, "--due", "-d2", help="New due date (YYYY-MM-DD)")
 ):
     """Updates the log"""
     
@@ -323,9 +324,14 @@ def update(
 
     # Status
     while True:
-        status = typer.prompt(f"New status? (TODO/WIP/DONE) (current: {row[3]})", default=row[3])
+        raw_status = typer.prompt(
+            f"New status? (TODO/WIP/DONE/FAIL) (current: {row[3]})",
+            default=row[3]
+        )
+        status = raw_status.strip().upper()  # normalize to all caps
+
         try:
-            validate_status(status)
+            validate_status(status)  # validator always receives CAPS
             break
         except Exception as e:
             console.print(f"[red]Invalid status: {e}[/]")
@@ -358,6 +364,22 @@ def update(
         tags = row[7]  # keep current
     else:
         tags = tags_input.strip()   
+    # Due Date
+    while True:
+        due_input = typer.prompt(
+            f"New due date? (YYYY-MM-DD) [current: {row[8]}] (press Enter to keep current)",
+            default=""
+        )
+        if due_input.strip() == "":
+            due = row[8]  # no change
+            break
+        try:
+            datetime.strptime(due_input, "%Y-%m-%d")  # validate format
+            due = due_input
+            break
+        except ValueError:
+            console.print("[red]Due date must be in YYYY-MM-DD format[/]")
+
 
     # Update log
     update_log(log_id, title, description, status, progress)
@@ -368,6 +390,7 @@ from db import carry_log_to_date
 def carry(log_id: int):
     """
     Carry a task to today's date using its log ID.
+    Also sets the carried task's due_date = today.
     """
     today = datetime.now().date().isoformat()  # 'YYYY-MM-DD'
 
@@ -376,10 +399,9 @@ def carry(log_id: int):
     if result == "DONE_TASK":
         console.print(f"[yellow]Task ID {log_id} is already DONE. Cannot carry it.[/]")
     elif result is True:
-        console.print(f"[green]Task ID {log_id} successfully carried to {today}[/]")
+        console.print(f"[green]Task ID {log_id} successfully carried to {today} (due: {today})[/]")
     else:
         console.print(f"[red]Task ID {log_id} not found.[/]")
-
 
 from db import delete_log
 
