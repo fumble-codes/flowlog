@@ -26,9 +26,46 @@ def init_db(): #this function creates the table in the database if it doesnt exi
             due_date TEXT
             
         )
-    ''') #cursor.execute execute the following sql script which is basic you will understand just by reading the script 
-    conn.commit() # saves the action to the database for real , this is so important
+    ''') 
+    cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ai_memory (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT
+            )
+    ''')
+    conn.commit() 
     conn.close()  # closes the table to prevent memory leak 
+def get_last_log_time():
+    """Find out when the last log was updated."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(updated_at) FROM logs")
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def get_ai_memory(key: str):
+    """Retrieve a key from AI memory."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value, updated_at FROM ai_memory WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row if row else (None, None)
+
+def update_ai_memory(key: str, value: str):
+    """Update or insert a key in AI memory."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    now_ts = datetime.now().isoformat()
+    cursor.execute("""
+        INSERT OR REPLACE INTO ai_memory (key, value, updated_at)
+        VALUES (?, ?, ?)
+    """, (key, value, now_ts))
+    conn.commit()
+    conn.close()
+
 def get_status_counts():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -79,6 +116,7 @@ def get_all_logs(): #yeah this shit gets all the logs to view in the cli
 
 def get_all_logs_with_tags():
     conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, title, description, status, progress, created_at, updated_at, tags
@@ -180,28 +218,58 @@ def get_db_connection():
 from datetime import datetime
 
 def carry_log_to_date(log_id, new_date):
-    """Carries a task to a new date by duplicating it with updated timestamps."""
+    """
+    Carries a task to a new date by duplicating it.
+    - created_at/updated_at are set to current timestamp (now).
+    - due_date is set to `new_date` (YYYY-MM-DD).
+    Returns:
+      - None        -> log not found
+      - "DONE_TASK" -> original task is DONE and shouldn't be carried
+      - True        -> success
+    """
     existing_log = get_log_by_id(log_id)
     if not existing_log:
         return None  # not found
 
-    # full unpack (9 fields now)
-    _, title, description, status, progress, created_at, updated_at, tags, due_date = existing_log
+    # support both tuple (legacy) and dict-style results if I ever switch
+    if isinstance(existing_log, dict):
+        title = existing_log.get("title")
+        description = existing_log.get("description")
+        status = existing_log.get("status")
+        progress = existing_log.get("progress", 0)
+        tags = existing_log.get("tags", "")
+    else:
+        # expected tuple shape: (id, title, description, status, progress, created_at, updated_at, tags, due_date)
+        try:
+            _, title, description, status, progress, created_at, updated_at, tags, old_due = existing_log
+        except Exception:
+            # fallback defensive indexing (shouldn't be needed if schema stable)
+            title = existing_log[1]
+            description = existing_log[2]
+            status = existing_log[3]
+            progress = existing_log[4]
+            tags = existing_log[7]
 
-    if status.strip().upper() == "DONE":
+    if status and status.strip().upper() == "DONE":
         return "DONE_TASK"
 
-    new_timestamp = datetime.fromisoformat(new_date).isoformat()
+    now_ts = datetime.now().isoformat()        # precise carry timestamp
+    due_value = new_date                       # store as 'YYYY-MM-DD' in due_date column
 
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO logs (title, description, status, progress, created_at, updated_at, tags, due_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (title, description, status, progress, new_timestamp, new_timestamp, tags, new_date))
+    try:
+        cursor.execute(
+            '''
+            INSERT INTO logs (title, description, status, progress, created_at, updated_at, tags, due_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (title, description, status, progress, now_ts, now_ts, tags, due_value)
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
-    conn.commit()
-    conn.close()
     return True
 
 def add_tags_column():

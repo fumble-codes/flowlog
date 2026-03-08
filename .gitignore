@@ -1,8 +1,15 @@
 venv/
+.venv/
+.env
 __pycache__/
+build/
+dist/
 *.pyc
 *.pyo
 *.pyd
 *.sqlite3
 *.spec
 *.exe
+*.db
+*.csv
+*.json
