@@ -427,7 +427,7 @@ def ai_add(prompt: str):
     """Add a task using natural language (Gemini)."""
     user_profile_json = trigger_ai_study()
     with console.status("[bold blue]AI parsing task...[/]"):
-        data = smart_parse_task(prompt, user_profile=user_profile_json)
+        data = smart_parse_task(prompt, user_profile_json=user_profile_json)
 
     if not data:
         console.print("[red]AI parsing failed. Check your API key.[/]")
@@ -458,7 +458,7 @@ def ai_summary():
         return
 
     with console.status("[bold magenta]AI analyzing your patterns...[/]"):
-        report = generate_ai_summary(logs, user_profile=user_profile_json, time_context=time_context)
+        report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
 
     console.print(Panel(report, title="🧠 AI Productivity Insights", border_style="cyan"))
 
