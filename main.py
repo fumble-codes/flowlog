@@ -45,7 +45,7 @@ from ai_utils import (
 # Load environment variables
 load_dotenv()
 
-def trigger_ai_study():
+def trigger_ai_study(force: bool = False):
     """
     Automatically study user patterns if logs have been updated since last study.
     """
@@ -54,9 +54,8 @@ def trigger_ai_study():
     last_log_time = get_last_log_time()
     profile, last_study_time = get_ai_memory("user_profile")
     
-    # Study if no profile exists OR logs updated after last study
-    if not profile or (last_log_time and last_study_time and last_log_time > last_study_time):
-        # We don't want to show this every time, only if it's actually doing something
+    # Study if force=True OR no profile exists OR logs updated after last study
+    if force or not profile or (last_log_time and last_study_time and last_log_time > last_study_time):
         logs = [dict(row) for row in get_all_logs_with_tags()]
         if logs:
             new_profile = study_user_patterns(logs)
@@ -176,7 +175,7 @@ def home():
 
     console.print(urgent_table)
 
-    tips = "[italic dim]Tips:[/] [bold]ai-add[/] \"task\" • [bold]ai-summary[/] • [bold]dashboard[/] • [bold]search[/] query • [bold]help[/] for full usage"
+    tips = "[italic dim]Tips:[/] [bold]ai-add[/] \"task\" • [bold]ai-summary[/] • [bold]insights[/] • [bold]dashboard[/] • [bold]search[/] query"
     console.print(Panel.fit(tips, box=box.ASCII2))
     console.print(Align.center(f"[dim]Flowlog • {datetime.now().strftime('%Y-%m-%d %H:%M')}[/dim]"))
 
@@ -318,7 +317,7 @@ def dashboard():
     """Live dashboard of active tasks."""
     logs = get_active_logs()
     if not logs:
-        console.print("[yellow]No active tasks.[/]")
+        console.print("[bold yellow]No active tasks. Try adding one or checking [bold]insights[/] for what to do next![/]")
         return
 
     for task in logs:
@@ -362,12 +361,73 @@ def summary():
 
 # --- AI Commands ---
 
+@app.command("force-study")
+def force_study():
+    """Manually force the AI to re-study all your logs and update your profile."""
+    with console.status("[bold blue]AI is performing a deep study of all your logs...[/]"):
+        profile = trigger_ai_study(force=True)
+    if profile:
+        console.print("[bold green]Deep study complete! Your profile has been updated.[/]")
+        insights()
+    else:
+        console.print("[red]Failed to update profile. Check your logs and API key.[/]")
+
+@app.command("insights")
+def insights():
+    """Get a deep psychological and behavioral analysis of your productivity."""
+    user_profile_json = trigger_ai_study()
+    if not user_profile_json:
+        console.print("[bold yellow]Not enough data to generate insights yet. Keep logging![/]")
+        return
+
+    try:
+        profile = json.loads(user_profile_json)
+    except Exception as e:
+        console.print(f"[red]Error parsing user profile: {e}[/]")
+        return
+
+    # Create a rich layout for insights
+    title = f"[bold magenta]🧠 Deep Productivity Insights[/]"
+    
+    # Archetypes as badges
+    archetypes_str = " ".join([f"[bold cyan on blue] {a} [/]" for a in profile.get('archetypes', [])])
+    
+    # Summary panel
+    summary_panel = Panel(
+        f"{profile.get('summary', 'No summary available.')}\n\n"
+        f"[bold cyan]Archetypes:[/] {archetypes_str}\n"
+        f"[bold cyan]Working Hours:[/] {profile.get('working_hours', 'Unknown')}",
+        title="[bold blue]Overview[/]",
+        border_style="blue"
+    )
+
+    # Focus breakdown
+    focus_str = "\n".join([f"- {f}" for f in profile.get('focus_breakdown', [])])
+    focus_panel = Panel(focus_str, title="[bold green]Focus Breakdown[/]", border_style="green")
+
+    # Psychological Profile
+    psyche_panel = Panel(
+        f"{profile.get('psychological_profile', 'No analysis available.')}",
+        title="[bold yellow]Psychological Profile[/]",
+        border_style="yellow"
+    )
+
+    # Smart Tips
+    tips_str = "\n".join([f"💡 {t}" for t in profile.get('smart_tips', [])])
+    tips_panel = Panel(tips_str, title="[bold white]Actionable Advice[/]", border_style="white")
+
+    console.print(Align.center(title))
+    console.print(summary_panel)
+    console.print(focus_panel)
+    console.print(psyche_panel)
+    console.print(tips_panel)
+
 @app.command("ai-add")
 def ai_add(prompt: str):
     """Add a task using natural language (Gemini)."""
-    user_profile = trigger_ai_study()
+    user_profile_json = trigger_ai_study()
     with console.status("[bold blue]AI parsing task...[/]"):
-        data = smart_parse_task(prompt, user_profile=user_profile)
+        data = smart_parse_task(prompt, user_profile=user_profile_json)
 
     if not data:
         console.print("[red]AI parsing failed. Check your API key.[/]")
@@ -382,7 +442,7 @@ def ai_add(prompt: str):
 @app.command("ai-summary")
 def ai_summary():
     """AI-powered productivity analysis and motivation."""
-    user_profile = trigger_ai_study()
+    user_profile_json = trigger_ai_study()
     from db import get_last_log_time
     last_log_time = get_last_log_time()
     time_context = get_real_time_context(last_log_time)
@@ -398,7 +458,7 @@ def ai_summary():
         return
 
     with console.status("[bold magenta]AI analyzing your patterns...[/]"):
-        report = generate_ai_summary(logs, user_profile=user_profile, time_context=time_context)
+        report = generate_ai_summary(logs, user_profile=user_profile_json, time_context=time_context)
 
     console.print(Panel(report, title="🧠 AI Productivity Insights", border_style="cyan"))
 

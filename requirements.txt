@@ -1,0 +1,7 @@
+typer
+rich
+pyfiglet
+google-generativeai
+python-dotenv
+chardet
+charset-normalizer

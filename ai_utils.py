@@ -45,38 +45,53 @@ def study_user_patterns(logs_data: list):
     model = get_gemini_model()
     if not model: return None
 
-    # Compact logs for analysis
+    # Compact logs for analysis to save tokens
     history = []
     for log in logs_data:
         history.append({
             "t": log["title"],
             "s": log["status"],
             "p": log["progress"],
-            "u": log["updated_at"]
+            "u": log["updated_at"],
+            "tags": log["tags"]
         })
 
     prompt = f"""
-    Study these project logs to build a psychological and behavioral profile of the user.
-    Identify:
-    - Their working hours (when do they usually update logs?)
-    - Their focus areas (what topics come up most?)
-    - Their productivity pattern (do they sprint, procrastinate, or work steadily?)
-    - Their current 'state of mind' (stressed, productive, lazy, etc.)
+    Study these project logs to build a deep psychological and behavioral profile of the user.
+    
+    Logs Data: {json.dumps(history)}
 
-    Logs: {json.dumps(history)}
+    Analyze the following categories:
+    1. Working Patterns: When are they most active? What's their sprint cycle?
+    2. Focus Areas: What topics dominate their work? What do they prioritize?
+    3. Behavioral Archetype: Are they a 'Closer', a 'Dreamer', a 'Consistent Grinder', or a 'Chaos Worker'? Explain why.
+    4. Procrastination vs. Flow: When do they stall? What triggers their flow state?
+    5. Psychological State: Based on the language in titles/descriptions and progress patterns, what is their general mindset?
 
-    Return a concise summary (max 300 words) that describes this user profile.
-    This will be used as the AI's "long-term memory" of the user.
+    Return a comprehensive profile in JSON format with these keys:
+    - summary (string)
+    - archetypes (list of strings)
+    - working_hours (string)
+    - focus_breakdown (list of strings)
+    - psychological_profile (string)
+    - smart_tips (list of strings)
+
+    Return ONLY the JSON object.
     """
 
     try:
         response = model.generate_content(prompt)
-        return response.text.strip()
+        content = response.text.strip()
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+        return content # Return as string JSON for DB storage
     except Exception as e:
         print(f"Study Error: {e}")
         return None
 
-def smart_parse_task(user_prompt: str, user_profile: str = None):
+def smart_parse_task(user_prompt: str, user_profile_json: str = None):
     """
     Uses Gemini to parse a natural language task description into structured fields.
     """
@@ -86,9 +101,18 @@ def smart_parse_task(user_prompt: str, user_profile: str = None):
 
     today = datetime.now().strftime("%Y-%m-%d (%A)")
     
+    # Extract summary from JSON profile for context
+    user_context = ""
+    if user_profile_json:
+        try:
+            profile = json.loads(user_profile_json)
+            user_context = f"User Profile Summary: {profile.get('summary', '')}"
+        except:
+            pass
+
     prompt = f"""
     Today is {today}.
-    {"User Profile: " + user_profile if user_profile else ""}
+    {user_context}
     Parse the following user task description into a JSON object with these fields:
     - title (string, required)
     - description (string, optional)
@@ -115,13 +139,22 @@ def smart_parse_task(user_prompt: str, user_profile: str = None):
         print(f"AI Error: {e}")
         return None
 
-def generate_ai_summary(logs_data: list, user_profile: str = None, time_context: str = None):
+def generate_ai_summary(logs_data: list, user_profile_json: str = None, time_context: str = None):
     """
     Generates a motivational summary and productivity analysis based on logs.
     """
     model = get_gemini_model()
     if not model:
         return "Gemini API key not found. Please set GEMINI_API_KEY in your .env file."
+
+    # Extract summary from JSON profile for context
+    user_context = ""
+    if user_profile_json:
+        try:
+            profile = json.loads(user_profile_json)
+            user_context = f"Long-term User Memory: {profile.get('summary', '')}"
+        except:
+            pass
 
     formatted_logs = []
     for log in logs_data:
@@ -135,7 +168,7 @@ def generate_ai_summary(logs_data: list, user_profile: str = None, time_context:
 
     prompt = f"""
     {time_context if time_context else ""}
-    { "User Memory/Profile: " + user_profile if user_profile else ""}
+    {user_context}
     
     Analyze these project logs and provide:
     1. A concise summary of recent progress.
