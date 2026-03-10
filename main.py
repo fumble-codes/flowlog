@@ -290,20 +290,21 @@ def carry(log_id: int):
 # --- View & Search Commands ---
 
 @app.command()
-def search(query: str):
+def search(query: list[str] = typer.Argument(..., help="Search query (can be multiple words)")):
     """Search tasks by title, description or tags."""
+    query_str = " ".join(query)
     conn = get_db_connection()
     cursor = conn.cursor()
-    q = f"%{query}%"
+    q = f"%{query_str}%"
     cursor.execute("SELECT * FROM logs WHERE title LIKE ? OR description LIKE ? OR tags LIKE ?", (q, q, q))
     rows = cursor.fetchall()
     conn.close()
 
     if not rows:
-        console.print(f"[yellow]No results for '{query}'.[/]")
+        console.print(f"[yellow]No results for '{query_str}'.[/]")
         return
 
-    table = Table(title=f"Search Results: {query}")
+    table = Table(title=f"Search Results: {query_str}")
     table.add_column("ID", width=6)
     table.add_column("Title")
     table.add_column("Status")
@@ -423,11 +424,12 @@ def insights():
     console.print(tips_panel)
 
 @app.command("ai-add")
-def ai_add(prompt: str):
+def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language description of the task")):
     """Add a task using natural language (Gemini)."""
+    prompt_str = " ".join(prompt)
     user_profile_json = trigger_ai_study()
     with console.status("[bold blue]AI parsing task...[/]"):
-        data = smart_parse_task(prompt, user_profile_json=user_profile_json)
+        data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
 
     if not data:
         console.print("[red]AI parsing failed. Check your API key.[/]")
