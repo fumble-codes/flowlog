@@ -175,7 +175,7 @@ def home():
 
     console.print(urgent_table)
 
-    tips = "[italic dim]Tips:[/] [bold]ai-add[/] \"task\" • [bold]ai-summary[/] • [bold]insights[/] • [bold]dashboard[/] • [bold]search[/] query"
+    tips = "[italic dim]Tips:[/] [bold]ai-add[/] \"task\" • [bold]ai-summary[/] • [bold]insights[/] • [bold]details[/] • [bold]dashboard[/]"
     console.print(Panel.fit(tips, box=box.ASCII2))
     console.print(Align.center(f"[dim]Flowlog • {datetime.now().strftime('%Y-%m-%d %H:%M')}[/dim]"))
 
@@ -215,6 +215,49 @@ def add():
         console.print(f"[green]Log added successfully![/]")
     except Exception as e:
         console.print(f"[red]Failed to save log: {e}[/]")
+
+@app.command()
+def details(log_id: int = typer.Argument(None, help="Specific ID to show details for. If omitted, shows all logs.")):
+    """Shows full details of logs (Description, Tags, Timestamps, etc.)"""
+    from db import get_all_logs_with_tags, get_log_by_id
+    
+    if log_id:
+        row = get_log_by_id(log_id)
+        if not row:
+            console.print(f"[red]Log with ID {log_id} not found.[/]")
+            return
+        logs = [row]
+    else:
+        logs = get_all_logs_with_tags()
+
+    if not logs:
+        console.print("[bold yellow]No logs found.[/]")
+        return
+
+    for log in logs:
+        # Handling both Row objects and tuples for backward compatibility
+        try:
+            id, title, desc, status, progress, created, updated, tags = log
+        except:
+            id = log["id"]
+            title = log["title"]
+            desc = log["description"]
+            status = log["status"]
+            progress = log["progress"]
+            created = log["created_at"]
+            updated = log["updated_at"]
+            tags = log["tags"]
+
+        panel_content = (
+            f"🔤 [bold cyan]Title:[/] {title}\n"
+            f"📝 [bold cyan]Description:[/] {desc or 'N/A'}\n"
+            f"📈 [bold cyan]Progress:[/] {render_progress(progress)} {progress}%\n"
+            f"📍 [bold cyan]Status:[/] {status}\n"
+            f"🏷️ [bold cyan]Tags:[/] {tags or 'None'}\n"
+            f"📅 [bold cyan]Created:[/] {created}\n"
+            f"♻️ [bold cyan]Updated:[/] {updated}"
+        )
+        console.print(Panel(panel_content, title=f"📌 Log ID: {id}", border_style="blue", expand=False))
 
 @app.command()
 def view(td: bool = typer.Option(False, "--td", help="Show only today's logs")):
