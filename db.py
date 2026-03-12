@@ -45,6 +45,14 @@ def get_last_log_time():
     conn.close()
     return row[0] if row else None
 
+def get_last_log_date():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(substr(created_at,1,10)) FROM logs")
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
 def get_ai_memory(key: str):
     """Retrieve a key from AI memory."""
     conn = sqlite3.connect(DB_NAME)
@@ -88,7 +96,7 @@ def get_due_on(date_str: str):
         WHERE due_date IS NOT NULL
           AND due_date != 'None'
           AND substr(due_date,1,10) = ?
-        ORDER BY status != 'DONE', progress ASC, title ASC
+        ORDER BY id DESC
     """, (date_str,))
     rows = cursor.fetchall()
     conn.close()
@@ -101,8 +109,10 @@ def add_log(title, description, status="TODO", progress=0, tags="",due_date="Non
         INSERT INTO logs (title, description, status, progress, created_at, updated_at, tags , due_date)
         VALUES (?, ?, ?, ?, ?, ?, ?,?)
     """, (title, description, status, progress, created_at, updated_at, tags,due_date))
+    new_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    return new_id
 
 
 
@@ -340,7 +350,7 @@ def get_all_logs_with_due():
     cursor.execute("""
         SELECT id, title, description, status, progress, tags, due_date
         FROM logs
-        ORDER BY id ASC
+        ORDER BY id DESC
     """)
     logs = cursor.fetchall()
     conn.close()

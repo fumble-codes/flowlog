@@ -1,18 +1,83 @@
 from datetime import datetime
 import json
 import os
-import google.generativeai as genai
+import warnings
 from dotenv import load_dotenv
+
+# Prefer new google.genai; fall back to google.generativeai if needed
+try:
+    import logging
+    # Suppress logging from SDKs
+    logging.getLogger('google').setLevel(logging.ERROR)
+    from google import genai
+    _GENAI_NEW = True
+except Exception:
+    _GENAI_NEW = False
+    try:
+        import warnings
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)
+        import google.generativeai as genai
+    except Exception:
+        genai = None
 
 load_dotenv()
 
-def get_gemini_model():
+def _get_gemini_client():
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    if not api_key or genai is None:
         return None
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel('gemini-flash-lite-latest')
+    if _GENAI_NEW:
+        try:
+            return genai.Client(api_key=api_key)
+        except Exception:
+            return None
+    else:
+        try:
+            genai.configure(api_key=api_key)
+            return True  # signal legacy configured
+        except Exception:
+            return None
 
+def get_gemini_model_for(name: str):
+    client = _get_gemini_client()
+    if client is None:
+        return None
+    if _GENAI_NEW:
+        return {"client": client, "model": name}
+    else:
+        try:
+            return genai.GenerativeModel(name)
+        except Exception:
+            return None
+
+def ai_generate_content(prompt: str):
+    order = os.getenv("AI_PROVIDER_ORDER", "gemini").split(",")
+    for provider in [p.strip().lower() for p in order]:
+        if provider == "gemini":
+            candidates_env = os.getenv("GEMINI_MODEL_CANDIDATES")
+            if candidates_env:
+                candidates = [m.strip() for m in candidates_env.split(",") if m.strip()]
+            else:
+                candidates = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash"]
+            for name in candidates:
+                model = get_gemini_model_for(name)
+                if not model:
+                    continue
+                try:
+                    if _GENAI_NEW:
+                        resp = model["client"].models.generate_content(model=model["model"], contents=prompt)
+                        text = getattr(resp, "text", None) or getattr(resp, "output_text", None)
+                        if text:
+                            return text.strip()
+                    else:
+                        resp = model.generate_content(prompt)
+                        text = getattr(resp, "text", None)
+                        if text:
+                            return text.strip()
+                except Exception:
+                    continue
+    return None
 def get_real_time_context(last_log_time_str: str = None):
     """
     Generate context about the current time and last activity.
@@ -42,9 +107,6 @@ def study_user_patterns(logs_data: list):
     """
     Analyze all logs to understand user behavior, focus, and psychology.
     """
-    model = get_gemini_model()
-    if not model: return None
-
     # Compact logs for analysis to save tokens
     history = []
     for log in logs_data:
@@ -79,26 +141,19 @@ def study_user_patterns(logs_data: list):
     Return ONLY the JSON object.
     """
 
-    try:
-        response = model.generate_content(prompt)
-        content = response.text.strip()
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
-        return content # Return as string JSON for DB storage
-    except Exception as e:
-        print(f"Study Error: {e}")
+    content = ai_generate_content(prompt)
+    if not content:
         return None
+    if "```json" in content:
+        content = content.split("```json")[1].split("```")[0].strip()
+    elif "```" in content:
+        content = content.split("```")[1].split("```")[0].strip()
+    return content
 
 def smart_parse_task(user_prompt: str, user_profile_json: str = None):
     """
     Uses Gemini to parse a natural language task description into structured fields.
     """
-    model = get_gemini_model()
-    if not model:
-        return None
-
     today = datetime.now().strftime("%Y-%m-%d (%A)")
     
     # Extract summary from JSON profile for context
@@ -127,8 +182,10 @@ def smart_parse_task(user_prompt: str, user_profile_json: str = None):
     """
     
     try:
-        response = model.generate_content(prompt)
-        content = response.text.strip()
+        os.environ["GEMINI_MODEL_CANDIDATES"] = "gemini-2.5-flash,gemini-3-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite"
+        content = ai_generate_content(prompt)
+        if not content:
+            return None
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
@@ -136,17 +193,12 @@ def smart_parse_task(user_prompt: str, user_profile_json: str = None):
             
         return json.loads(content)
     except Exception as e:
-        print(f"AI Error: {e}")
         return None
 
 def generate_ai_summary(logs_data: list, user_profile_json: str = None, time_context: str = None):
     """
     Generates a motivational summary and productivity analysis based on logs.
     """
-    model = get_gemini_model()
-    if not model:
-        return "Gemini API key not found. Please set GEMINI_API_KEY in your .env file."
-
     # Extract summary from JSON profile for context
     user_context = ""
     if user_profile_json:
@@ -182,8 +234,75 @@ def generate_ai_summary(logs_data: list, user_profile_json: str = None, time_con
     Keep it punchy and engaging for a CLI user.
     """
 
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        return f"AI Error: {e}"
+    os.environ["GEMINI_MODEL_CANDIDATES"] = "gemini-2.5-pro,gemini-3-flash,gemini-2.5-flash,gemini-3.1-flash-lite,gemini-2.5-flash-lite"
+    content = ai_generate_content(prompt)
+    if content:
+        return content
+    return "AI not available; using offline features."
+
+DOMAIN_TITLES = {
+    "gym": "Gym Workout",
+    "college": "College",
+    "coding": "Coding Work",
+    "design": "Design Work",
+    "bugfix": "Bug Fixes",
+    "deploy": "Deployment",
+    "outreach": "Outreach",
+    "meeting": "Meeting",
+    "research": "Research",
+    "chill": "Chill / Rest",
+    "qsi": "QSI Site Work",
+    "groovsta": "Groovsta Client Work",
+    "webmatic": "Webmatic Client Work",
+}
+
+def extract_metrics(desc: str):
+    import re
+    text = (desc or "").lower()
+    metrics = {"dms": None, "calls": None, "meta_reachouts": None}
+    m = re.search(r"\b(dm|dms|direct messages?)\b\s*(?:=|:)?\s*(\d+)", text)
+    if m:
+        metrics["dms"] = int(m.group(2))
+    m = re.search(r"cold\s+call(?:ed|s)?\s*(\d+)\s*-\s*(\d+)", text)
+    if m:
+        metrics["calls"] = f"{m.group(1)}-{m.group(2)}"
+    else:
+        m = re.search(r"cold\s+call(?:ed|s)?\s*(?:=|:)?\s*(\d+)", text)
+        if m:
+            metrics["calls"] = int(m.group(1))
+    m1 = re.search(r"reachout.*meta\s+ad.*(?:=|:)\s*(\d+)", text)
+    m2 = re.search(r"meta\s+ad.*reachout.*(?:=|:)\s*(\d+)", text)
+    if m1 or m2:
+        metrics["meta_reachouts"] = int((m1 or m2).group(1))
+    return metrics
+
+def synthesize_title(domain: str, desc: str, fallback: str) -> str:
+    return fallback or DOMAIN_TITLES.get(domain, "Activity")
+
+def infer_tags_local(description: str) -> list[str]:
+    if not description:
+        return []
+    text = description.lower()
+    tags = set()
+    mapping = {
+        "gym": ["gym", "workout", "training"],
+        "college": ["college", "class", "lecture", "assignment"],
+        "coding": ["code", "coding", "develop", "development", "programming"],
+        "design": ["design", "ui", "ux", "hero", "layout"],
+        "bugfix": ["bug", "fix", "debug", "issue", "error", "resolved"],
+        "deploy": ["deploy", "deployed", "ship", "shipped", "release", "launched"],
+        "outreach": ["outreach", "email", "dm", "message", "cold"],
+        "meeting": ["meeting", "call", "sync", "standup"],
+        "research": ["research", "read", "learned", "explored", "planning", "plan"],
+        "chill": ["chill", "chilling", "rest", "break", "relax"],
+        "qsi": ["qsi"],
+        "groovsta": ["groovsta", "social"],
+        "webmatic": ["webmatic"],
+        "flowlog": ["flowlog"]
+    }
+    for tag, keywords in mapping.items():
+        for k in keywords:
+            if k in text:
+                tags.add(tag)
+                break
+    return list(tags)[:6]

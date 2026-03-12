@@ -8,10 +8,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from rich.console import Console
+from rich.console import Console, Group
+from rich.text import Text
 from rich.panel import Panel
 from rich.align import Align
-from rich.table import box
+from rich.table import Table as RichTable, box
 from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 
 # Internal imports
@@ -39,8 +40,13 @@ from ai_utils import (
     smart_parse_task, 
     generate_ai_summary, 
     study_user_patterns, 
-    get_real_time_context
+    get_real_time_context,
+    infer_tags_local
 )
+from gap_recovery import check_and_run_gap_recovery
+from gap_recovery import rehydrate_gap_summaries
+from ui import header, footer, grouped_logs_table, smart_tips_panel
+from ui_theme import role_color
 
 # Load environment variables
 load_dotenv()
@@ -102,7 +108,7 @@ def home():
     console.print(Panel.fit(Align.center(f"[cyan]{logo_text}[/cyan]"), border_style="cyan", box=box.ASCII2))
 
     # Status metrics bar
-    metrics = Table(show_header=False)
+    metrics = RichTable(show_header=False, box=box.ASCII2)
     metrics.add_column(justify="center")
     metrics.add_column(justify="center")
     metrics.add_column(justify="center")
@@ -118,7 +124,7 @@ def home():
     if not due_today:
         console.print(Panel.fit("[dim]No tasks due today.[/]", title=due_panel_title, box=box.ASCII2))
     else:
-        due_table = Table(title=due_panel_title)
+        due_table = RichTable(title=due_panel_title, box=box.ASCII2)
         due_table.add_column("Sr. No.", style="dim", width=8)
         due_table.add_column("Title", style="bold")
         due_table.add_column("Status", style="cyan")
@@ -126,6 +132,7 @@ def home():
         due_table.add_column("Due", style="red")
 
         for idx, row in enumerate(due_today, start=1):
+            # id, title, description, status, progress, tags, due_date
             _, title, _, status, progress, _, due_date = row
             due_short = (due_date or "").strip()[:10]
             try:
@@ -147,6 +154,7 @@ def home():
     today = datetime.now().date()
     upcoming = []
     for row in logs:
+        # id, title, description, status, progress, tags, due_date
         due_str = row[6]
         if due_str and due_str != "None":
             try:
@@ -158,7 +166,7 @@ def home():
     upcoming.sort(key=lambda x: x[0])
     nearest = upcoming[:5]
 
-    urgent_table = Table(title="[bold red]Urgent Tasks • Nearest Due Dates[/]")
+    urgent_table = RichTable(title="[bold red]Urgent Tasks • Nearest Due Dates[/]", box=box.ASCII2)
     urgent_table.add_column("Sr. No.", style="dim", width=8)
     urgent_table.add_column("Title", style="bold")
     urgent_table.add_column("Status", style="cyan")
@@ -182,6 +190,7 @@ def home():
 @app.command()
 def add():
     """Add a new progress log manually."""
+    check_and_run_gap_recovery()
     title = typer.prompt("Enter title").strip()
     while not title:
         console.print("[red]Title cannot be empty.[/]")
@@ -211,8 +220,9 @@ def add():
         due_date = "None"
 
     try:
-        add_log(title, description, status, progress, tags, due_date)
-        console.print(f"[green]Log added successfully![/]")
+        new_id = add_log(title, description, status, progress, tags, due_date)
+        console.print(f"[green]Log added successfully! (ID: {new_id})[/]")
+        console.print(f"[dim]Tip: Undo this with 'delete {new_id}'[/]")
     except Exception as e:
         console.print(f"[red]Failed to save log: {e}[/]")
 
@@ -260,30 +270,48 @@ def details(log_id: int = typer.Argument(None, help="Specific ID to show details
         console.print(Panel(panel_content, title=f"📌 Log ID: {id}", border_style="blue", expand=False))
 
 @app.command()
-def view(td: bool = typer.Option(False, "--td", help="Show only today's logs")):
-    """View logs in a formatted table."""
-    if td:
-        today_str = datetime.now().date().isoformat()
-        logs = get_logs_by_due_date(today_str)
-    else:
-        logs = get_all_logs_with_due()
-
-    if not logs:
+def view(
+    mode: str = typer.Option("compact", "--mode", "-m", help="compact or dense"),
+    page_size: int = typer.Option(15, "--size", "-s", help="Logs per page")
+):
+    """View logs with interactive pagination."""
+    rows = get_all_logs_with_due()
+    if not rows:
         console.print("[bold yellow]No logs found.[/]")
         return
 
-    table = Table(title="All Logs")
-    table.add_column("ID", style="dim", width=6)
-    table.add_column("Title", style="bold")
-    table.add_column("Status", style="cyan")
-    table.add_column("Progress", width=20)
-    table.add_column("Due Date", style="red")
+    # Convert tuples to dicts for the UI component
+    entries = []
+    for r in rows:
+        entries.append({
+            "id": r[0],
+            "title": r[1],
+            "description": r[2],
+            "status": r[3],
+            "progress": r[4],
+            "tags": r[5].split(",") if r[5] else [],
+            "date": r[6] if r[6] != "None" else None
+        })
 
-    for log in logs:
-        log_id, title, desc, status, progress, tags, due_date = log
-        table.add_row(str(log_id), title, status, render_progress(progress), due_date or "")
-
-    console.print(table)
+    page = 1
+    show_details = (mode == "dense")
+    
+    while True:
+        console.clear()
+        console.print(grouped_logs_table(entries, page=page, page_size=page_size, mode=mode, show_details=show_details))
+        
+        cmd = typer.prompt("", prompt_suffix="[n/p/m/d/q] > ", default="q").lower().strip()
+        
+        if cmd == "n":
+            page += 1
+        elif cmd == "p":
+            page -= 1
+        elif cmd == "m":
+            mode = "dense" if mode == "compact" else "compact"
+        elif cmd == "d":
+            show_details = not show_details
+        elif cmd == "q":
+            break
 
 @app.command()
 def update(
@@ -308,13 +336,15 @@ def update(
         progress = int(progress_str)
 
     update_log(log_id, title, desc, status, progress)
-    console.print(f"[green]Log {log_id} updated![/]")
+    console.print(f"[green]Log {log_id} updated successfully![/]")
+    console.print(f"[dim]Tip: You can revert changes using interactive 'update {log_id}' again.[/]")
 
 @app.command()
 def delete(log_id: int):
     """Delete a log."""
     if delete_log(log_id):
         console.print(f"[green]Deleted log {log_id}.[/]")
+        console.print("[dim]Note: Deletions are permanent in the current version.[/]")
     else:
         console.print(f"[red]Log {log_id} not found.[/]")
 
@@ -329,6 +359,25 @@ def carry(log_id: int):
         console.print(f"[green]Task {log_id} carried to {today}.[/]")
     else:
         console.print(f"[red]Task {log_id} not found.[/]")
+
+@app.command()
+def undo():
+    """Undo the last added log."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title FROM logs ORDER BY created_at DESC LIMIT 1")
+    row = cursor.fetchone()
+    if not row:
+        console.print("[yellow]Nothing to undo.[/]")
+        conn.close()
+        return
+    
+    log_id, title = row[0], row[1]
+    if typer.confirm(f"Delete the last added log: '{title}' (ID: {log_id})?", default=True):
+        cursor.execute("DELETE FROM logs WHERE id = ?", (log_id,))
+        conn.commit()
+        console.print(f"[green]Log '{title}' successfully deleted.[/]")
+    conn.close()
 
 # --- View & Search Commands ---
 
@@ -394,10 +443,20 @@ def summary():
 
     done = counts.get("DONE", 0)
     rate = (done / total) * 100
+    
+    stats_table = RichTable(show_header=False, box=box.SIMPLE, expand=True)
+    stats_table.add_column(style="bold")
+    stats_table.add_column(justify="right")
+    stats_table.add_row("Total Tasks", str(total))
+    stats_table.add_row("TODO", f"[bold {role_color('warning')}]{counts.get('TODO',0)}[/]")
+    stats_table.add_row("WIP", f"[bold {role_color('title')}]{counts.get('WIP',0)}[/]")
+    stats_table.add_row("DONE", f"[bold {role_color('success')}]{done}[/]")
+    
     panel = Panel(
-        Align.center(
-            f"Total: {total} | TODO: {counts.get('TODO',0)} | WIP: {counts.get('WIP',0)} | DONE: {done}\n\n"
-            f"Completion: {render_progress(int(rate))} [green]{rate:.1f}%[/]"
+        Group(
+            stats_table,
+            Text(f"\nCompletion: {rate:.1f}%", justify="center", style="bold"),
+            Align.center(render_progress(int(rate)))
         ),
         title="📊 Project Stats", border_style="magenta"
     )
@@ -469,6 +528,7 @@ def insights():
 @app.command("ai-add")
 def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language description of the task")):
     """Add a task using natural language (Gemini)."""
+    check_and_run_gap_recovery()
     prompt_str = " ".join(prompt)
     user_profile_json = trigger_ai_study()
     with console.status("[bold blue]AI parsing task...[/]"):
@@ -478,11 +538,28 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
         console.print("[red]AI parsing failed. Check your API key.[/]")
         return
 
-    console.print(Panel(json.dumps(data, indent=2), title="AI Suggestion"))
-    if typer.confirm("Add this task?", default=True):
-        add_log(data['title'], data.get('description',''), data.get('status','TODO'), 
-                data.get('progress',0), data.get('tags',''), data.get('due_date','None'))
-        console.print("[green]Added![/]")
+    # Pretty Preview Card
+    preview_table = RichTable(show_header=False, box=box.SIMPLE_HEAD)
+    preview_table.add_column("Field", style="bold cyan")
+    preview_table.add_column("Value")
+    preview_table.add_row("Title", data.get('title'))
+    preview_table.add_row("Description", data.get('description', 'N/A'))
+    preview_table.add_row("Status", data.get('status', 'TODO'))
+    preview_table.add_row("Progress", f"{data.get('progress', 0)}%")
+    preview_table.add_row("Tags", data.get('tags', 'None'))
+    preview_table.add_row("Due Date", data.get('due_date', 'None'))
+    
+    console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
+
+    if typer.confirm("Confirm and add this task?", default=True):
+        tags_value = data.get('tags','')
+        if not tags_value:
+            tags_list = infer_tags_local(data.get('description',''))
+            tags_value = ",".join(tags_list)
+        new_id = add_log(data['title'], data.get('description',''), data.get('status','TODO'), 
+                data.get('progress',0), tags_value, data.get('due_date','None'))
+        console.print(f"[green]Task added successfully! (ID: {new_id})[/]")
+        console.print(f"[dim]To revert, use 'delete {new_id}'[/]")
 
 @app.command("ai-summary")
 def ai_summary():
@@ -506,6 +583,33 @@ def ai_summary():
         report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
 
     console.print(Panel(report, title="🧠 AI Productivity Insights", border_style="cyan"))
+
+@app.command("ai-rehydrate")
+def ai_rehydrate():
+    """Convert 'Gap summary' entries into detailed multi-entry logs when AI becomes available."""
+    with console.status("[bold blue]Rehydrating gap summaries...[/]"):
+        count = rehydrate_gap_summaries()
+    if count:
+        console.print(f"[green]Rehydrated {count} gap summaries into detailed logs.[/]")
+    else:
+        console.print("[yellow]No gap summaries found to rehydrate.[/]")
+
+@app.command("view-logs")
+def view_logs(page: int = typer.Option(1), page_size: int = typer.Option(15), mode: str = typer.Option("compact"), details: bool = typer.Option(False)):
+    """Static view of logs (classic style)."""
+    rows = get_all_logs_with_tags()
+    entries = []
+    for r in rows:
+        entries.append({
+            "id": r["id"],
+            "title": r["title"],
+            "description": r["description"],
+            "status": r["status"],
+            "progress": r["progress"],
+            "created_at": r["created_at"],
+            "tags": r["tags"].split(",") if r["tags"] else []
+        })
+    console.print(grouped_logs_table(entries, page=page, page_size=page_size, mode=mode, show_details=details))
 
 # --- Import / Export ---
 
