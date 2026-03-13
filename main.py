@@ -62,6 +62,7 @@ def trigger_ai_study(force: bool = False):
     
     # Study if force=True OR no profile exists OR logs updated after last study
     if force or not profile or (last_log_time and last_study_time and last_log_time > last_study_time):
+        # We explicitly get logs with tags and ensure we have log_date for the AI
         logs = [dict(row) for row in get_all_logs_with_tags()]
         if logs:
             new_profile = study_user_patterns(logs)
@@ -73,6 +74,14 @@ def trigger_ai_study(force: bool = False):
 # App Setup
 app = typer.Typer(help="Flowlog: A modern CLI project tracker with AI insights.")
 console = Console()
+
+# TUI Stability Patch: Disable live status if running inside Textual
+if os.environ.get("FLOWLOG_TUI_MODE") == "1":
+    from contextlib import contextmanager
+    @contextmanager
+    def dummy_status(status, *args, **kwargs):
+        yield
+    console.status = dummy_status
 
 # Ensure DB directory exists
 APP_NAME = "Flowlog"
@@ -99,7 +108,8 @@ def hello():
 @app.command("home")
 def home():
     """Flowlog Command Center Dashboard."""
-    today_str = datetime.now().date().isoformat()
+    from utils import get_logical_date
+    today_str = get_logical_date()
     counts = get_status_counts()
     due_today = get_due_on(today_str)
 
@@ -247,7 +257,8 @@ def details(log_id: int = typer.Argument(None, help="Specific ID to show details
     for log in logs:
         # Handling both Row objects and tuples for backward compatibility
         try:
-            id, title, desc, status, progress, created, updated, tags = log
+            # id, title, desc, status, progress, created, updated, tags, log_date
+            id, title, desc, status, progress, created, updated, tags, event_date = log
         except:
             id = log["id"]
             title = log["title"]
@@ -257,14 +268,16 @@ def details(log_id: int = typer.Argument(None, help="Specific ID to show details
             created = log["created_at"]
             updated = log["updated_at"]
             tags = log["tags"]
+            event_date = log.get("log_date")
 
         panel_content = (
+            f"📅 [bold cyan]Event Date:[/] {event_date or 'N/A'}\n"
             f"🔤 [bold cyan]Title:[/] {title}\n"
             f"📝 [bold cyan]Description:[/] {desc or 'N/A'}\n"
             f"📈 [bold cyan]Progress:[/] {render_progress(progress)} {progress}%\n"
             f"📍 [bold cyan]Status:[/] {status}\n"
             f"🏷️ [bold cyan]Tags:[/] {tags or 'None'}\n"
-            f"📅 [bold cyan]Created:[/] {created}\n"
+            f"🕒 [bold cyan]Created:[/] {created}\n"
             f"♻️ [bold cyan]Updated:[/] {updated}"
         )
         console.print(Panel(panel_content, title=f"📌 Log ID: {id}", border_style="blue", expand=False))
@@ -283,6 +296,7 @@ def view(
     # Convert tuples to dicts for the UI component
     entries = []
     for r in rows:
+        # r: id, title, description, status, progress, tags, due_date, log_date
         entries.append({
             "id": r[0],
             "title": r[1],
@@ -290,7 +304,7 @@ def view(
             "status": r[3],
             "progress": r[4],
             "tags": r[5].split(",") if r[5] else [],
-            "date": r[6] if r[6] != "None" else None
+            "date": r[7] or (r[6] if r[6] != "None" else None) or "Unknown"
         })
 
     page = 1
@@ -329,6 +343,9 @@ def update(
 
     # If no options provided, enter interactive mode
     if not any([title, desc, status, progress]):
+        if os.environ.get("FLOWLOG_TUI_MODE") == "1":
+            console.print("[red]Interactive update not supported from TUI command line. Use the 'Logs' tab selection instead.[/]")
+            return
         title = typer.prompt("New title?", default=row[1])
         desc = typer.prompt("New description?", default=row[2])
         status = typer.prompt("New status?", default=row[3]).upper()
@@ -373,7 +390,11 @@ def undo():
         return
     
     log_id, title = row[0], row[1]
-    if typer.confirm(f"Delete the last added log: '{title}' (ID: {log_id})?", default=True):
+    confirmed = True
+    if os.environ.get("FLOWLOG_TUI_MODE") != "1":
+        confirmed = typer.confirm(f"Delete the last added log: '{title}' (ID: {log_id})?", default=True)
+    
+    if confirmed:
         cursor.execute("DELETE FROM logs WHERE id = ?", (log_id,))
         conn.commit()
         console.print(f"[green]Log '{title}' successfully deleted.[/]")
@@ -490,33 +511,35 @@ def insights():
         return
 
     # Create a rich layout for insights
-    title = f"[bold magenta]🧠 Deep Productivity Insights[/]"
+    title = f"[bold magenta][BRAIN] Deep Productivity Insights[/]"
     
     # Archetypes as badges
     archetypes_str = " ".join([f"[bold cyan on blue] {a} [/]" for a in profile.get('archetypes', [])])
     
+    from rich.markup import Markup
+    
     # Summary panel
     summary_panel = Panel(
-        f"{profile.get('summary', 'No summary available.')}\n\n"
+        f"{Markup.escape(profile.get('summary', 'No summary available.'))}\n\n"
         f"[bold cyan]Archetypes:[/] {archetypes_str}\n"
-        f"[bold cyan]Working Hours:[/] {profile.get('working_hours', 'Unknown')}",
+        f"[bold cyan]Working Hours:[/] {Markup.escape(profile.get('working_hours', 'Unknown'))}",
         title="[bold blue]Overview[/]",
         border_style="blue"
     )
 
     # Focus breakdown
-    focus_str = "\n".join([f"- {f}" for f in profile.get('focus_breakdown', [])])
+    focus_str = "\n".join([f"- {Markup.escape(f)}" for f in profile.get('focus_breakdown', [])])
     focus_panel = Panel(focus_str, title="[bold green]Focus Breakdown[/]", border_style="green")
 
     # Psychological Profile
     psyche_panel = Panel(
-        f"{profile.get('psychological_profile', 'No analysis available.')}",
+        f"{Markup.escape(profile.get('psychological_profile', 'No analysis available.'))}",
         title="[bold yellow]Psychological Profile[/]",
         border_style="yellow"
     )
 
     # Smart Tips
-    tips_str = "\n".join([f"💡 {t}" for t in profile.get('smart_tips', [])])
+    tips_str = "\n".join([f"💡 {Markup.escape(t)}" for t in profile.get('smart_tips', [])])
     tips_panel = Panel(tips_str, title="[bold white]Actionable Advice[/]", border_style="white")
 
     console.print(Align.center(title))
@@ -551,7 +574,11 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
     
     console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
 
-    if typer.confirm("Confirm and add this task?", default=True):
+    confirmed = True
+    if os.environ.get("FLOWLOG_TUI_MODE") != "1":
+        confirmed = typer.confirm("Confirm and add this task?", default=True)
+        
+    if confirmed:
         tags_value = data.get('tags','')
         if not tags_value:
             tags_list = infer_tags_local(data.get('description',''))
@@ -565,13 +592,14 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
 def ai_summary():
     """AI-powered productivity analysis and motivation."""
     user_profile_json = trigger_ai_study()
-    from db import get_last_log_time
-    last_log_time = get_last_log_time()
-    time_context = get_real_time_context(last_log_time)
+    from db import get_last_log_date
+    last_event_date = get_last_log_date()
+    time_context = get_real_time_context(last_event_date)
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT title, status, progress, tags, updated_at FROM logs ORDER BY updated_at DESC LIMIT 20")
+    # Use log_date for logical chronological ordering
+    cursor.execute("SELECT title, status, progress, tags, updated_at, log_date FROM logs ORDER BY log_date DESC, id DESC LIMIT 20")
     logs = [dict(row) for row in cursor.fetchall()]
     conn.close()
 
@@ -582,7 +610,8 @@ def ai_summary():
     with console.status("[bold magenta]AI analyzing your patterns...[/]"):
         report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
 
-    console.print(Panel(report, title="🧠 AI Productivity Insights", border_style="cyan"))
+    from rich.text import Text
+    console.print(Panel(Text(report), title="[BRAIN] AI Productivity Insights", border_style="cyan"))
 
 @app.command("ai-rehydrate")
 def ai_rehydrate():
@@ -671,28 +700,5 @@ def add_tag_cmd(log_id: int, tags: str):
     update_tags(log_id, updated)
     console.print(f"[green]Tags updated for {log_id}.[/]")
 
-# --- Interactive Shell ---
-
-def interactive_shell():
-    console.clear()
-    trigger_ai_study()
-    home()
-    while True:
-        try:
-            cmd = input("\n[Flowlog] > ").strip()
-            if cmd.lower() in ["exit", "quit"]: break
-            if cmd:
-                args = shlex.split(cmd)
-                try: app(args)
-                except SystemExit: pass
-                if args[0].lower() in {"add", "delete", "update", "ai-add"}:
-                    console.print("\nRefreshed Dashboard...")
-                    home()
-        except KeyboardInterrupt: break
-        except Exception as e: console.print(f"[red]Error: {e}[/]")
-
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        app()
-    else:
-        interactive_shell()
+    app()

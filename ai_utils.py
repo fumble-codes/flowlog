@@ -1,24 +1,35 @@
+import os
+os.environ["PYTHONWARNINGS"] = "ignore:All support for the `google.generativeai` package has ended:FutureWarning"
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 from datetime import datetime
 import json
-import os
-import warnings
 from dotenv import load_dotenv
 
-# Prefer new google.genai; fall back to google.generativeai if needed
+# Handle Google AI SDK imports
+_GENAI_NEW = False
+genai = None
+
 try:
     import logging
-    # Suppress logging from SDKs
     logging.getLogger('google').setLevel(logging.ERROR)
-    from google import genai
-    _GENAI_NEW = True
-except Exception:
-    _GENAI_NEW = False
+    # Try the new google-genai SDK
+    from google import genai as genai_new
+    if hasattr(genai_new, 'Client'):
+        genai = genai_new
+        _GENAI_NEW = True
+except (ImportError, AttributeError):
+    pass
+
+if not _GENAI_NEW:
     try:
+        # Fallback to the legacy google-generativeai SDK
+        import google.generativeai as genai_legacy
+        genai = genai_legacy
         import warnings
         warnings.filterwarnings("ignore", category=FutureWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
-        import google.generativeai as genai
-    except Exception:
+    except ImportError:
         genai = None
 
 load_dotenv()
@@ -114,7 +125,7 @@ def study_user_patterns(logs_data: list):
             "t": log["title"],
             "s": log["status"],
             "p": log["progress"],
-            "u": log["updated_at"],
+            "d": log.get("log_date") or (log.get("created_at")[:10] if log.get("created_at") else ""),
             "tags": log["tags"]
         })
 
@@ -123,7 +134,7 @@ def study_user_patterns(logs_data: list):
     
     Logs Data: {json.dumps(history)}
 
-    Analyze the following categories:
+    Analyze the following categories using the activity date ('d'):
     1. Working Patterns: When are they most active? What's their sprint cycle?
     2. Focus Areas: What topics dominate their work? What do they prioritize?
     3. Behavioral Archetype: Are they a 'Closer', a 'Dreamer', a 'Consistent Grinder', or a 'Chaos Worker'? Explain why.
@@ -154,7 +165,8 @@ def smart_parse_task(user_prompt: str, user_profile_json: str = None):
     """
     Uses Gemini to parse a natural language task description into structured fields.
     """
-    today = datetime.now().strftime("%Y-%m-%d (%A)")
+    from utils import get_logical_date
+    today = get_logical_date()
     
     # Extract summary from JSON profile for context
     user_context = ""
@@ -168,11 +180,20 @@ def smart_parse_task(user_prompt: str, user_profile_json: str = None):
     prompt = f"""
     Today is {today}.
     {user_context}
-    Parse the following user task description into a JSON object with these fields:
+    
+    Task: Parse the user prompt into a structured JSON object.
+    
+    Status Heuristics:
+    - DONE: Use if the user explicitly mentions finishing, completing, shipping, or resolving the task (e.g., "just finished", "shipped the feature", "finally fixed x").
+    - WIP: Use if the user mentions currently working on, building, or being in the middle of a task (e.g., "working on x", "coding the y module", "investigating z").
+    - FAILED: Use if the user mentions giving up, failing, or a task being impossible/blocked permanently (e.g., "couldn't finish x", "gave up on y", "failed to z").
+    - TODO: Default for new plans or future intentions (e.g., "I need to do x", "should start y tomorrow").
+
+    Fields:
     - title (string, required)
     - description (string, optional)
     - status (one of: TODO, WIP, DONE, FAILED)
-    - progress (integer 0-100)
+    - progress (integer 0-100; if DONE set to 100, if TODO set to 0 unless specified)
     - tags (comma-separated string)
     - due_date (string in YYYY-MM-DD format, or null)
 
@@ -180,6 +201,7 @@ def smart_parse_task(user_prompt: str, user_profile_json: str = None):
 
     Return ONLY the JSON object.
     """
+
     
     try:
         os.environ["GEMINI_MODEL_CANDIDATES"] = "gemini-2.5-flash,gemini-3-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite"
@@ -215,7 +237,7 @@ def generate_ai_summary(logs_data: list, user_profile_json: str = None, time_con
             "status": log["status"],
             "progress": log["progress"],
             "tags": log["tags"],
-            "last_updated": log["updated_at"]
+            "activity_date": log.get("log_date") or (log.get("updated_at")[:10] if log.get("updated_at") else "")
         })
 
     prompt = f"""
@@ -229,6 +251,7 @@ def generate_ai_summary(logs_data: list, user_profile_json: str = None, time_con
     4. One 'Smart Tip' for tomorrow.
 
     Logs: {json.dumps(formatted_logs)}
+    Note: 'activity_date' represents the actual day the work was performed.
 
     Format the output using Rich-compatible tags like [bold green], [italic], etc. 
     Keep it punchy and engaging for a CLI user.

@@ -376,7 +376,7 @@ def save_generated_logs(items: list):
     for it in items:
         tags_str = ",".join(it.get("tags", []))
         due = it.get("date")
-        add_log(it.get("title","Untitled"), it.get("description",""), "DONE", it.get("progress",0), tags_str, due)
+        add_log(it.get("title","Untitled"), it.get("description",""), "DONE", it.get("progress",0), tags_str, due, log_date=due)
 
 def _infer_range_from_paragraph(paragraph: str, year_hint: int = None):
     import re

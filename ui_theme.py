@@ -1,18 +1,23 @@
 PALETTE = {
-    "ink": "#333333",
-    "muted": "#666A86",
-    "blue": "#95B8D1",
-    "cream": "#E8DDB5",
-    "pink": "#EDAFB8",
+    "background": "#24273a",  # Catppuccin Macchiato Surface0 (Softer than black)
+    "pink": "#f5bde6",        # Pink (Vibrant yet soft)
+    "blue": "#8aadf4",        # Blue
+    "yellow": "#eed49f",      # Yellow
+    "peach": "#f5a97f",       # Peach (Orange counterpart)
+    "mauve": "#c6a0f6",       # Mauve (Purple)
+    "teal": "#8bd5ca",        # Teal
+    "sky": "#91d7e3",         # Sky Blue
+    "lavender": "#b7bdf8",    # Lavender
+    "ink": "#cad3f5",         # Text color
 }
 
 ROLES = {
-    "title": PALETTE["blue"],
-    "success": PALETTE["cream"],
-    "warning": PALETTE["pink"],
-    "error": "#FF6B6B",
-    "info": PALETTE["muted"],
-    "border": PALETTE["muted"],
+    "title": PALETTE["mauve"],
+    "success": PALETTE["teal"],
+    "warning": PALETTE["yellow"],
+    "error": PALETTE["pink"],
+    "info": PALETTE["sky"],
+    "border": PALETTE["blue"],
 }
 
 def role_color(name: str) -> str:

@@ -1,0 +1,309 @@
+﻿python : E:\programming and stuff\cli project tracker\ai_utils.py:25: 
+FutureWarning: 
+At line:1 char:28
++ $env:FLOWLOG_TUI_MODE="1"; python main.py ai-summary 2>&1 | out-file 
+ ...
++                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (E:\programming ...FutureW 
+   arning: :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+All support for the `google.generativeai` package has ended. It will 
+no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as 
+soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/m
+ain/README.md
+
+  import google.generativeai as genai_legacy
++--------------------- Traceback (most recent call last) 
+---------------------+
+| E:\programming and stuff\cli project tracker\main.py:598 in 
+ai_summary      |
+|                                                                      
+       |
+|   595     with console.status("[bold magenta]AI analyzing your 
+patterns...[ |
+|   596         report = generate_ai_summary(logs, 
+user_profile_json=user_pro |
+|   597                                                                
+       |
+| > 598     console.print(Panel(report, title="\U0001f9e0 AI 
+Productivity Insights",  |
+|   599                                                                
+       |
+|   600 @app.command("ai-rehydrate")                                   
+       |
+|   601 def ai_rehydrate():                                            
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1724 in print                                                        
+       |
+|                                                                      
+       |
+|   1721             render = self.render                              
+       |
+|   1722             if style is None:                                 
+       |
+|   1723                 for renderable in renderables:                
+       |
+| > 1724                     extend(render(renderable, 
+render_options))       |
+|   1725             else:                                             
+       |
+|   1726                 render_style = self.get_style(style)          
+       |
+|   1727                 new_line = Segment.line()                     
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1345 in render                                                       
+       |
+|                                                                      
+       |
+|   1342             )                                                 
+       |
+|   1343         _Segment = Segment                                    
+       |
+|   1344         _options = _options.reset_height()                    
+       |
+| > 1345         for render_output in iter_render:                     
+       |
+|   1346             if isinstance(render_output, _Segment):           
+       |
+|   1347                 yield render_output                           
+       |
+|   1348             else:                                             
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\panel
+.py:22 |
+| 9 in __rich_console__                                                
+       |
+|                                                                      
+       |
+|   226         child_options = options.update(                        
+       |
+|   227             width=child_width, height=child_height, 
+highlight=self.hi |
+|   228         )                                                      
+       |
+| > 229         lines = console.render_lines(renderable, 
+child_options, style |
+|   230                                                                
+       |
+|   231         line_start = Segment(box.mid_left, border_style)       
+       |
+|   232         line_end = Segment(f"{box.mid_right}", border_style)   
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1385 in render_lines                                                 
+       |
+|                                                                      
+       |
+|   1382             if render_height is not None:                     
+       |
+|   1383                 render_height = max(0, render_height)         
+       |
+|   1384                                                               
+       |
+| > 1385             lines = list(                                     
+       |
+|   1386                 islice(                                       
+       |
+|   1387                     Segment.split_and_crop_lines(             
+       |
+|   1388                         _rendered,                            
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\segme
+nt.py: |
+| 336 in split_and_crop_lines                                          
+       |
+|                                                                      
+       |
+|   333         adjust_line_length = cls.adjust_line_length            
+       |
+|   334         new_line_segment = cls("\n")                           
+       |
+|   335                                                                
+       |
+| > 336         for segment in segments:                               
+       |
+|   337             if "\n" in segment.text and not segment.control:   
+       |
+|   338                 text, segment_style, _ = segment               
+       |
+|   339                 while text:                                    
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1345 in render                                                       
+       |
+|                                                                      
+       |
+|   1342             )                                                 
+       |
+|   1343         _Segment = Segment                                    
+       |
+|   1344         _options = _options.reset_height()                    
+       |
+| > 1345         for render_output in iter_render:                     
+       |
+|   1346             if isinstance(render_output, _Segment):           
+       |
+|   1347                 yield render_output                           
+       |
+|   1348             else:                                             
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\paddi
+ng.py: |
+| 97 in __rich_console__                                               
+       |
+|                                                                      
+       |
+|    94             render_options = render_options.update_height(     
+       |
+|    95                 height=render_options.height - self.top - 
+self.bottom |
+|    96             )                                                  
+       |
+| >  97         lines = console.render_lines(                          
+       |
+|    98             self.renderable, render_options, style=style, 
+pad=True    |
+|    99         )                                                      
+       |
+|   100         _Segment = Segment                                     
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1385 in render_lines                                                 
+       |
+|                                                                      
+       |
+|   1382             if render_height is not None:                     
+       |
+|   1383                 render_height = max(0, render_height)         
+       |
+|   1384                                                               
+       |
+| > 1385             lines = list(                                     
+       |
+|   1386                 islice(                                       
+       |
+|   1387                     Segment.split_and_crop_lines(             
+       |
+|   1388                         _rendered,                            
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\segme
+nt.py: |
+| 336 in split_and_crop_lines                                          
+       |
+|                                                                      
+       |
+|   333         adjust_line_length = cls.adjust_line_length            
+       |
+|   334         new_line_segment = cls("\n")                           
+       |
+|   335                                                                
+       |
+| > 336         for segment in segments:                               
+       |
+|   337             if "\n" in segment.text and not segment.control:   
+       |
+|   338                 text, segment_style, _ = segment               
+       |
+|   339                 while text:                                    
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1327 in render                                                       
+       |
+|                                                                      
+       |
+|   1324         if hasattr(renderable, "__rich_console__") and not 
+isclass(r |
+|   1325             render_iterable = 
+renderable.__rich_console__(self, _opt |
+|   1326         elif isinstance(renderable, str):                     
+       |
+| > 1327             text_renderable = self.render_str(                
+       |
+|   1328                 renderable, highlight=_options.highlight, 
+markup=_op |
+|   1329             )                                                 
+       |
+|   1330             render_iterable = 
+text_renderable.__rich_console__(self, |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\conso
+le.py: |
+| 1448 in render_str                                                   
+       |
+|                                                                      
+       |
+|   1445         highlight_enabled = highlight or (highlight is None 
+and self |
+|   1446                                                               
+       |
+|   1447         if markup_enabled:                                    
+       |
+| > 1448             rich_text = render_markup(                        
+       |
+|   1449                 text,                                         
+       |
+|   1450                 style=style,                                  
+       |
+|   1451                 emoji=emoji_enabled,                          
+       |
+|                                                                      
+       |
+| C:\Users\HP\AppData\Roaming\Python\Python314\site-packages\rich\marku
+p.py:1 |
+| 67 in render                                                         
+       |
+|                                                                      
+       |
+|   164                     try:                                       
+       |
+|   165                         start, open_tag = 
+pop_style(style_name)       |
+|   166                     except KeyError:                           
+       |
+| > 167                         raise MarkupError(                     
+       |
+|   168                             f"closing tag '{tag.markup}' at 
+position  |
+|   169                         ) from None                            
+       |
+|   170                 else:  # implicit close                        
+       |
++----------------------------------------------------------------------
+-------+
+MarkupError: closing tag '[/bold]' at position 249 doesn't match any 
+open tag

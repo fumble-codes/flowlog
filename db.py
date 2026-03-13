@@ -23,10 +23,17 @@ def init_db(): #this function creates the table in the database if it doesnt exi
             created_at TEXT,
             updated_at TEXT,
             tags TEXT,
-            due_date TEXT
-            
+            due_date TEXT,
+            log_date TEXT
         )
-    ''') 
+    ''')
+    # Migration: Add log_date if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN log_date TEXT")
+        # Populate existing logs with their created_at date (date part only)
+        cursor.execute("UPDATE logs SET log_date = substr(created_at, 1, 10) WHERE log_date IS NULL")
+    except sqlite3.OperationalError:
+        pass # Column already exists
     cursor.execute('''
             CREATE TABLE IF NOT EXISTS ai_memory (
                 key TEXT PRIMARY KEY,
@@ -48,10 +55,11 @@ def get_last_log_time():
 def get_last_log_date():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT MAX(substr(created_at,1,10)) FROM logs")
+    cursor.execute("SELECT MAX(log_date) FROM logs")
     row = cursor.fetchone()
     conn.close()
     return row[0] if row and row[0] else None
+
 
 def get_ai_memory(key: str):
     """Retrieve a key from AI memory."""
@@ -91,7 +99,7 @@ def get_due_on(date_str: str):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, title, description, status, progress, tags, due_date
+        SELECT id, title, description, status, progress, tags, log_date
         FROM logs
         WHERE due_date IS NOT NULL
           AND due_date != 'None'
@@ -101,14 +109,18 @@ def get_due_on(date_str: str):
     rows = cursor.fetchall()
     conn.close()
     return rows
-def add_log(title, description, status="TODO", progress=0, tags="",due_date="None"):
+def add_log(title, description, status="TODO", progress=0, tags="", due_date="None", log_date=None):
+    from utils import get_logical_date
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     created_at = updated_at = datetime.now().isoformat()
+    if not log_date:
+        log_date = get_logical_date()
+        
     cursor.execute("""
-        INSERT INTO logs (title, description, status, progress, created_at, updated_at, tags , due_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?,?)
-    """, (title, description, status, progress, created_at, updated_at, tags,due_date))
+        INSERT INTO logs (title, description, status, progress, created_at, updated_at, tags , due_date, log_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (title, description, status, progress, created_at, updated_at, tags, due_date, log_date))
     new_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -119,7 +131,7 @@ def add_log(title, description, status="TODO", progress=0, tags="",due_date="Non
 def get_all_logs(): #yeah this shit gets all the logs to view in the cli
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, description, status, progress, created_at , updated_at FROM logs ORDER BY created_at DESC")
+    cursor.execute("SELECT id, title, description, status, progress, created_at, updated_at, log_date FROM logs ORDER BY log_date DESC, id DESC")
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -129,9 +141,9 @@ def get_all_logs_with_tags():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, title, description, status, progress, created_at, updated_at, tags
+        SELECT id, title, description, status, progress, created_at, updated_at, tags, log_date
         FROM logs
-        ORDER BY created_at DESC
+        ORDER BY log_date DESC, id DESC
     """)
     rows = cursor.fetchall()
     conn.close()
@@ -348,7 +360,7 @@ def get_all_logs_with_due():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, title, description, status, progress, tags, due_date
+        SELECT id, title, description, status, progress, tags, due_date, log_date
         FROM logs
         ORDER BY id DESC
     """)
@@ -358,5 +370,5 @@ def get_all_logs_with_due():
 
 from pathlib import Path
 
-if not Path("flowlog.db").exists():
-    init_db()  # assuming you already have an init_db() function
+if not Path(DB_NAME).exists():
+    init_db()
