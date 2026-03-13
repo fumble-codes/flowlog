@@ -1,3 +1,11 @@
+import warnings
+import os
+# Suppress specific dependency and deprecation warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="requests")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*google.generativeai.*")
+os.environ["PYTHONWARNINGS"] = "ignore"
+
 import typer 
 import os
 import pyfiglet

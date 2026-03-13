@@ -1,7 +1,13 @@
 import os
-os.environ["PYTHONWARNINGS"] = "ignore:All support for the `google.generativeai` package has ended:FutureWarning"
 import warnings
-warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+import logging
+
+# Suppress all warnings for a premium CLI feel
+os.environ["PYTHONWARNINGS"] = "ignore"
+warnings.filterwarnings("ignore")
+logging.getLogger('google').setLevel(logging.ERROR)
+logging.getLogger('requests').setLevel(logging.ERROR)
+
 from datetime import datetime
 import json
 from dotenv import load_dotenv
