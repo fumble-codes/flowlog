@@ -1,4 +1,5 @@
 import os
+import sys
 import warnings
 import logging
 
@@ -11,6 +12,7 @@ logging.getLogger('requests').setLevel(logging.ERROR)
 from datetime import datetime
 import json
 from dotenv import load_dotenv
+import requests
 
 class AIApiError(Exception):
     """Custom exception for AI API failures."""
@@ -43,7 +45,13 @@ if not _GENAI_NEW:
     except ImportError:
         genai = None
 
-load_dotenv()
+# Load .env - support both dev and PyInstaller modes
+if getattr(sys, 'frozen', False):
+    # Running as exe - .env is bundled next to exe
+    env_path = os.path.join(os.path.dirname(sys.executable), '.env')
+else:
+    env_path = '.env'
+load_dotenv(env_path)
 
 def _get_gemini_client():
     api_key = os.getenv("GEMINI_API_KEY")
@@ -73,43 +81,103 @@ def get_gemini_model_for(name: str):
         except Exception:
             return None
 
+
+def _call_kimi_api(prompt: str, model: str = "kimi-latest") -> str:
+    """
+    Call Kimi AI (Moonshot) API.
+    """
+    api_key = os.getenv("KIMI_API_KEY")
+    if not api_key:
+        return None
+    
+    url = "https://api.moonshot.cn/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    data = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=60)
+        if response.status_code == 200:
+            result = response.json()
+            if "choices" in result and len(result["choices"]) > 0:
+                return result["choices"][0]["message"]["content"]
+        return None
+    except Exception:
+        return None
+
+
+def _call_provider(prompt: str, provider: str) -> tuple[str, str]:
+    """
+    Call a specific AI provider and return (result, error).
+    """
+    if provider == "kimi":
+        candidates_env = os.getenv("KIMI_MODEL_CANDIDATES")
+        if candidates_env:
+            candidates = [m.strip() for m in candidates_env.split(",") if m.strip()]
+        else:
+            candidates = ["kimi-latest", "kimi-flash-latest", "kimi-flash"]
+        
+        for model in candidates:
+            result = _call_kimi_api(prompt, model)
+            if result:
+                return result, None
+            continue
+        return None, "All Kimi models failed"
+    
+    elif provider == "gemini":
+        candidates_env = os.getenv("GEMINI_MODEL_CANDIDATES")
+        if candidates_env:
+            candidates = [m.strip() for m in candidates_env.split(",") if m.strip()]
+        else:
+            candidates = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash"]
+        
+        for name in candidates:
+            model = get_gemini_model_for(name)
+            if not model:
+                continue
+            try:
+                if _GENAI_NEW:
+                    resp = model["client"].models.generate_content(model=model["model"], contents=prompt)
+                    text = getattr(resp, "text", None) or getattr(resp, "output_text", None)
+                    if text:
+                        return text.strip(), None
+                else:
+                    resp = model.generate_content(prompt)
+                    text = getattr(resp, "text", None)
+                    if text:
+                        return text.strip(), None
+            except Exception as e:
+                continue
+        
+        return None, "All Gemini models failed"
+    
+    return None, f"Unknown provider: {provider}"
+
 def ai_generate_content(prompt: str):
-    order = os.getenv("AI_PROVIDER_ORDER", "gemini").split(",")
+    order = os.getenv("AI_PROVIDER_ORDER", "gemini,kimi").split(",")
     last_error = None
     
     for provider in [p.strip().lower() for p in order]:
-        if provider == "gemini":
-            candidates_env = os.getenv("GEMINI_MODEL_CANDIDATES")
-            if candidates_env:
-                candidates = [m.strip() for m in candidates_env.split(",") if m.strip()]
-            else:
-                candidates = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-3-flash"]
-            for name in candidates:
-                model = get_gemini_model_for(name)
-                if not model:
-                    continue
-                try:
-                    if _GENAI_NEW:
-                        resp = model["client"].models.generate_content(model=model["model"], contents=prompt)
-                        text = getattr(resp, "text", None) or getattr(resp, "output_text", None)
-                        if text:
-                            return text.strip()
-                    else:
-                        resp = model.generate_content(prompt)
-                        text = getattr(resp, "text", None)
-                        if text:
-                            return text.strip()
-                except Exception as e:
-                    last_error = str(e)
-                    continue
-                    
-    # If we get here, all providers/models failed.
+        result, error = _call_provider(prompt, provider)
+        if result:
+            return result
+        if error:
+            last_error = error
+    
     if last_error:
         err_lower = last_error.lower()
         if "429" in err_lower or "quota" in err_lower or "exhausted" in err_lower:
             raise AIApiError("API Quota Exceeded. Please wait a minute and try again, or check your API billing limits.")
         elif "401" in err_lower or "auth" in err_lower or "api key" in err_lower:
-            raise AIApiError("API Authentication Failed. Please check your GEMINI_API_KEY in the .env file.")
+            raise AIApiError("API Authentication Failed. Please check your API keys in the .env file.")
         elif "503" in err_lower or "unavailable" in err_lower:
             raise AIApiError("AI Service is temporarily unavailable. Please try again later.")
         else:
