@@ -320,13 +320,13 @@ def send_text_to_llm(start_date: str, end_date: str, paragraph: str):
             else:
                 tags_list = [str(x).strip() for x in tags if str(x).strip()]
             try:
-                from ai_utils import infer_tags_local
                 local_tags = infer_tags_local(desc)
                 for lt in local_tags:
                     if lt not in tags_list:
                         tags_list.append(lt)
             except:
                 pass
+
             if not tags_list:
                 try:
                     parsed = smart_parse_task(desc)
