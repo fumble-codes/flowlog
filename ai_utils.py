@@ -12,7 +12,12 @@ from datetime import datetime
 import json
 from dotenv import load_dotenv
 
+class AIApiError(Exception):
+    """Custom exception for AI API failures."""
+    pass
+
 # Handle Google AI SDK imports
+
 _GENAI_NEW = False
 genai = None
 
@@ -70,6 +75,8 @@ def get_gemini_model_for(name: str):
 
 def ai_generate_content(prompt: str):
     order = os.getenv("AI_PROVIDER_ORDER", "gemini").split(",")
+    last_error = None
+    
     for provider in [p.strip().lower() for p in order]:
         if provider == "gemini":
             candidates_env = os.getenv("GEMINI_MODEL_CANDIDATES")
@@ -92,8 +99,22 @@ def ai_generate_content(prompt: str):
                         text = getattr(resp, "text", None)
                         if text:
                             return text.strip()
-                except Exception:
+                except Exception as e:
+                    last_error = str(e)
                     continue
+                    
+    # If we get here, all providers/models failed.
+    if last_error:
+        err_lower = last_error.lower()
+        if "429" in err_lower or "quota" in err_lower or "exhausted" in err_lower:
+            raise AIApiError("API Quota Exceeded. Please wait a minute and try again, or check your API billing limits.")
+        elif "401" in err_lower or "auth" in err_lower or "api key" in err_lower:
+            raise AIApiError("API Authentication Failed. Please check your GEMINI_API_KEY in the .env file.")
+        elif "503" in err_lower or "unavailable" in err_lower:
+            raise AIApiError("AI Service is temporarily unavailable. Please try again later.")
+        else:
+            raise AIApiError(f"AI Service Error: {last_error[:200]}... Please try again or check your connection.")
+            
     return None
 def get_real_time_context(last_log_time_str: str = None):
     """
@@ -220,8 +241,11 @@ def smart_parse_task(user_prompt: str, user_profile_json: str = None):
             content = content.split("```")[1].split("```")[0].strip()
             
         return json.loads(content)
+    except AIApiError:
+        raise
     except Exception as e:
         return None
+
 
 def generate_ai_summary(logs_data: list, user_profile_json: str = None, time_context: str = None):
     """

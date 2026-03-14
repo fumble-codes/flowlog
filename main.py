@@ -49,7 +49,8 @@ from ai_utils import (
     generate_ai_summary, 
     study_user_patterns, 
     get_real_time_context,
-    infer_tags_local
+    infer_tags_local,
+    AIApiError
 )
 from gap_recovery import check_and_run_gap_recovery
 from gap_recovery import rehydrate_gap_summaries
@@ -507,7 +508,12 @@ def force_study():
 @app.command("insights")
 def insights():
     """Get a deep psychological and behavioral analysis of your productivity."""
-    user_profile_json = trigger_ai_study()
+    try:
+        user_profile_json = trigger_ai_study()
+    except AIApiError as e:
+        console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+        return
+        
     if not user_profile_json:
         console.print("[bold yellow]Not enough data to generate insights yet. Keep logging![/]")
         return
@@ -561,11 +567,16 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
     """Add a task using natural language (Gemini)."""
     check_and_run_gap_recovery()
     prompt_str = " ".join(prompt)
-    user_profile_json = trigger_ai_study()
-    with console.status("[bold blue]AI parsing task...[/]"):
-        data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
+    try:
+        user_profile_json = trigger_ai_study()
+        with console.status("[bold blue]AI parsing task...[/]"):
+            data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
+    except AIApiError as e:
+        console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+        return
 
     if not data:
+
         console.print("[red]AI parsing failed. Check your API key.[/]")
         return
 
@@ -599,8 +610,14 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
 @app.command("ai-summary")
 def ai_summary():
     """AI-powered productivity analysis and motivation."""
-    user_profile_json = trigger_ai_study()
+    try:
+        user_profile_json = trigger_ai_study()
+    except AIApiError as e:
+        console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+        return
+        
     from db import get_last_log_date
+
     last_event_date = get_last_log_date()
     time_context = get_real_time_context(last_event_date)
 
@@ -616,7 +633,12 @@ def ai_summary():
         return
 
     with console.status("[bold magenta]AI analyzing your patterns...[/]"):
-        report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
+        try:
+            report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
+        except AIApiError as e:
+            console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+            return
+
 
     from rich.text import Text
     console.print(Panel(Text(report), title="[BRAIN] AI Productivity Insights", border_style="cyan"))

@@ -4,7 +4,7 @@ import typer
 from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
-from ai_utils import get_gemini_model_for, smart_parse_task, infer_tags_local, ai_generate_content
+from ai_utils import get_gemini_model_for, smart_parse_task, infer_tags_local, ai_generate_content, AIApiError
 from db import get_last_log_date, add_log, get_db_connection, delete_log
 from utils import get_logical_date
 
@@ -348,6 +348,20 @@ def send_text_to_llm(start_date: str, end_date: str, paragraph: str):
             })
         normalized = _dedup_entries(normalized)
         return normalized
+    except AIApiError as e:
+        console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+        console.print("[yellow]Falling back to offline parsing...[/]")
+        local_items = _parse_paragraph_locally(start_date, end_date, paragraph.strip())
+        if local_items:
+            return local_items
+        tags_list = infer_tags_local(paragraph.strip())
+        return [{
+            "date": start_date,
+            "title": "Gap summary",
+            "description": paragraph.strip(),
+            "progress": estimate_progress(paragraph.strip()),
+            "tags": tags_list or ["summary"]
+        }]
     except Exception:
         local_items = _parse_paragraph_locally(start_date, end_date, paragraph.strip())
         if local_items:
