@@ -482,23 +482,31 @@ class FlowlogApp(App):
         try:
             p = json.loads(patterns_json)
             from rich.text import Text
+            from rich.style import Style
+            
+            pink = PALETTE['pink']
+            mauve = PALETTE['mauve']
+            blue = PALETTE['blue']
+            teal = PALETTE['teal']
+            yellow = PALETTE['yellow']
+            orange = PALETTE['peach']
             
             report = Text()
-            report.append("DEEP BEHAVIORAL ANALYSIS\n\n", style="bold pink")
+            report.append("DEEP BEHAVIORAL ANALYSIS\n\n", style=Style(bold=True, color=pink))
             
-            report.append("Archetypes: ", style="bold mauve")
+            report.append("Archetypes: ", style=Style(bold=True, color=mauve))
             report.append(f"{', '.join(p.get('archetypes', []))}\n", style="none")
             
-            report.append("Active Window: ", style="bold blue")
+            report.append("Active Window: ", style=Style(bold=True, color=blue))
             report.append(f"{p.get('working_hours', 'Unknown')}\n\n", style="none")
             
-            report.append("SYNOPSIS\n", style="bold teal")
+            report.append("SYNOPSIS\n", style=Style(bold=True, color=teal))
             report.append(f"{p.get('summary', '')}\n\n", style="none")
             
-            report.append("PSYCHOLOGICAL PROFILE\n", style="bold yellow")
+            report.append("PSYCHOLOGICAL PROFILE\n", style=Style(bold=True, color=yellow))
             report.append(f"{p.get('psychological_profile', '')}\n\n", style="none")
             
-            report.append("SMART TIPS\n", style="bold orange")
+            report.append("SMART TIPS\n", style=Style(bold=True, color=orange))
             for tip in p.get('smart_tips', []):
                 report.append(f"🌸 {tip}\n", style="none")
             return report
