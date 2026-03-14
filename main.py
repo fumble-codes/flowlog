@@ -23,6 +23,17 @@ from rich.align import Align
 from rich.table import Table as RichTable, box
 from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 
+# Global exception handler to prevent crashes
+def exception_handler(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    console = Console()
+    console.print(f"\n[bold red]Error:[/] {exc_type.__name__}: {exc_value}")
+    console.print("[dim]Type 'flowlog --help' for available commands.[/]")
+
+sys.excepthook = exception_handler
+
 # Internal imports
 from db import (
     init_db, 
@@ -81,7 +92,7 @@ def trigger_ai_study(force: bool = False):
     return profile
 
 # App Setup
-app = typer.Typer(help="Flowlog: A modern CLI project tracker with AI insights.")
+app = typer.Typer(help="Flowlog: A modern CLI project tracker with AI insights.", add_completion=False)
 console = Console()
 
 # TUI Stability Patch: Disable live status if running inside Textual
@@ -101,11 +112,45 @@ DB_NAME = str(APP_DIR / "flowlog.db")
 # Initialize DB on start
 init_db()
 
+# Try to import click_repl, fallback to custom REPL if not available
+try:
+    import click_repl
+    CLICK_REPL_AVAILABLE = True
+except ImportError:
+    CLICK_REPL_AVAILABLE = False
+
+def custom_repl(ctx: typer.Context):
+    """Simple fallback REPL if click_repl is not available."""
+    console.print("[dim]Enter commands one at a time. Type 'exit' to quit.[/]\n")
+    while True:
+        try:
+            cmd = console.input("[cyan]> [/]")
+            if cmd.strip().lower() in ('exit', 'quit', 'q'):
+                break
+            if not cmd.strip():
+                continue
+            ctx.invoke(ctx.command, args=shlex.split(cmd))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Use 'exit' to quit.[/]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/]")
+
 # --- Callbacks ---
 @app.callback(invoke_without_command=True)
 def _default(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         home()
+        import sys
+        if sys.stdout.isatty():
+            console.print("\n[bold cyan]Entering Interactive Mode. Type commands (e.g., 'ai-add \"task\"', 'insights'). Type 'exit' to quit.[/]\n")
+            if CLICK_REPL_AVAILABLE:
+                try:
+                    click_repl.repl(ctx)
+                except Exception as e:
+                    console.print(f"[yellow]REPL unavailable: {e}[/]")
+                    custom_repl(ctx)
+            else:
+                custom_repl(ctx)
 
 # --- Core Commands ---
 
@@ -565,47 +610,51 @@ def insights():
 @app.command("ai-add")
 def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language description of the task")):
     """Add a task using natural language (Gemini)."""
-    check_and_run_gap_recovery()
-    prompt_str = " ".join(prompt)
     try:
-        user_profile_json = trigger_ai_study()
-        with console.status("[bold blue]AI parsing task...[/]"):
-            data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
-    except AIApiError as e:
-        console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
-        return
+        check_and_run_gap_recovery()
+        prompt_str = " ".join(prompt)
+        try:
+            user_profile_json = trigger_ai_study()
+            with console.status("[bold blue]AI parsing task...[/]"):
+                data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
+        except AIApiError as e:
+            console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+            return
 
-    if not data:
+        if not data:
 
-        console.print("[red]AI parsing failed. Check your API key.[/]")
-        return
+            console.print("[red]AI parsing failed. Check your API key.[/]")
+            return
 
-    # Pretty Preview Card
-    preview_table = RichTable(show_header=False, box=box.SIMPLE_HEAD)
-    preview_table.add_column("Field", style="bold cyan")
-    preview_table.add_column("Value")
-    preview_table.add_row("Title", data.get('title'))
-    preview_table.add_row("Description", data.get('description', 'N/A'))
-    preview_table.add_row("Status", data.get('status', 'TODO'))
-    preview_table.add_row("Progress", f"{data.get('progress', 0)}%")
-    preview_table.add_row("Tags", data.get('tags', 'None'))
-    preview_table.add_row("Due Date", data.get('due_date', 'None'))
-    
-    console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
-
-    confirmed = True
-    if os.environ.get("FLOWLOG_TUI_MODE") != "1":
-        confirmed = typer.confirm("Confirm and add this task?", default=True)
+        # Pretty Preview Card
+        preview_table = RichTable(show_header=False, box=box.SIMPLE_HEAD)
+        preview_table.add_column("Field", style="bold cyan")
+        preview_table.add_column("Value")
+        preview_table.add_row("Title", data.get('title'))
+        preview_table.add_row("Description", data.get('description', 'N/A'))
+        preview_table.add_row("Status", data.get('status', 'TODO'))
+        preview_table.add_row("Progress", f"{data.get('progress', 0)}%")
+        preview_table.add_row("Tags", data.get('tags', 'None'))
+        preview_table.add_row("Due Date", data.get('due_date', 'None'))
         
-    if confirmed:
-        tags_value = data.get('tags','')
-        if not tags_value:
-            tags_list = infer_tags_local(data.get('description',''))
-            tags_value = ",".join(tags_list)
-        new_id = add_log(data['title'], data.get('description',''), data.get('status','TODO'), 
-                data.get('progress',0), tags_value, data.get('due_date','None'))
-        console.print(f"[green]Task added successfully! (ID: {new_id})[/]")
-        console.print(f"[dim]To revert, use 'delete {new_id}'[/]")
+        console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
+
+        confirmed = True
+        if os.environ.get("FLOWLOG_TUI_MODE") != "1":
+            confirmed = typer.confirm("Confirm and add this task?", default=True)
+            
+        if confirmed:
+            tags_value = data.get('tags','')
+            if not tags_value:
+                tags_list = infer_tags_local(data.get('description',''))
+                tags_value = ",".join(tags_list)
+            new_id = add_log(data['title'], data.get('description',''), data.get('status','TODO'), 
+                    data.get('progress',0), tags_value, data.get('due_date','None'))
+            console.print(f"[green]Task added successfully! (ID: {new_id})[/]")
+            console.print(f"[dim]To revert, use 'delete {new_id}'[/]")
+    except Exception as e:
+        console.print(f"[red]Error in ai-add: {e}[/]")
+        console.print("[dim]Check your API key and try again.[/]")
 
 @app.command("ai-summary")
 def ai_summary():
