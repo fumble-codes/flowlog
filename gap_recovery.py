@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.table import Table
 from ai_utils import get_gemini_model_for, smart_parse_task, infer_tags_local, ai_generate_content
 from db import get_last_log_date, add_log, get_db_connection, delete_log
+from utils import get_logical_date
 
 console = Console()
 
@@ -233,13 +234,25 @@ def _dedup_entries(items: list):
         })
     return deduped
 def _date_range_from_last(last_date_str: str):
-    today = datetime.now().date()
+    # Use logical today (respects the 4 AM rollover)
+    logical_today_str = get_logical_date()
+    logical_today = datetime.strptime(logical_today_str, "%Y-%m-%d").date()
+    
     last_date = datetime.strptime(last_date_str, "%Y-%m-%d").date()
-    diff = (today - last_date).days
+    
+    # Gap exists if logical_today is at least 2 days ahead of last_date
+    # e.g., last_date = March 12, logical_today = March 14 -> diff = 2.
+    # The gap is March 13.
+    diff = (logical_today - last_date).days
+    
     if diff <= 1:
         return None
+        
     start = last_date + timedelta(days=1)
-    return start, today, diff
+    # The end of the gap is the day BEFORE logical_today
+    end = logical_today - timedelta(days=1)
+    
+    return start, end, (end - start).days + 1
 
 def detect_gap():
     last = get_last_log_date()
