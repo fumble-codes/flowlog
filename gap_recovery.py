@@ -1,4 +1,6 @@
+import os
 import typer
+
 from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
@@ -455,6 +457,8 @@ def rehydrate_gap_summaries():
         rehydrated += 1
     return rehydrated
 def check_and_run_gap_recovery():
+    if os.environ.get("FLOWLOG_TUI_MODE") == "1":
+        return
     gap = detect_gap()
     if not gap:
         return
