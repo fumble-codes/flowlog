@@ -1,5 +1,11 @@
 import warnings
 import os
+import sys
+# Force UTF-8 output for Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+os.environ['FORCE_COLOR'] = '1'
 # Suppress specific dependency and deprecation warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="requests")
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -8,7 +14,6 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 
 import typer 
 import click
-import os
 import pyfiglet
 import json
 import csv
@@ -94,7 +99,7 @@ def trigger_ai_study(force: bool = False):
 
 # App Setup
 app = typer.Typer(help="Flowlog: A modern CLI project tracker with AI insights.", add_completion=False)
-console = Console(color_system='truecolor', legacy_windows=False)
+console = Console(color_system='truecolor')
 
 # TUI Stability Patch: Disable live status if running inside Textual
 if os.environ.get("FLOWLOG_TUI_MODE") == "1":
