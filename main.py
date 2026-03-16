@@ -7,6 +7,7 @@ warnings.filterwarnings("ignore", message=".*google.generativeai.*")
 os.environ["PYTHONWARNINGS"] = "ignore"
 
 import typer 
+import click
 import os
 import pyfiglet
 import json
@@ -112,15 +113,8 @@ DB_NAME = str(APP_DIR / "flowlog.db")
 # Initialize DB on start
 init_db()
 
-# Try to import click_repl, fallback to custom REPL if not available
-try:
-    import click_repl
-    CLICK_REPL_AVAILABLE = True
-except ImportError:
-    CLICK_REPL_AVAILABLE = False
-
-def custom_repl(ctx: typer.Context):
-    """Simple fallback REPL if click_repl is not available."""
+def custom_repl():
+    """Simple REPL for interactive mode."""
     console.print("[dim]Enter commands one at a time. Type 'exit' to quit.[/]\n")
     while True:
         try:
@@ -129,9 +123,18 @@ def custom_repl(ctx: typer.Context):
                 break
             if not cmd.strip():
                 continue
-            ctx.invoke(ctx.command, args=shlex.split(cmd))
+            # Parse and invoke command
+            try:
+                args = shlex.split(cmd)
+                app(args)
+            except SystemExit:
+                pass
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/]")
         except KeyboardInterrupt:
             console.print("\n[yellow]Use 'exit' to quit.[/]")
+        except EOFError:
+            break
         except Exception as e:
             console.print(f"[red]Error: {e}[/]")
 
@@ -143,14 +146,7 @@ def _default(ctx: typer.Context):
         import sys
         if sys.stdout.isatty():
             console.print("\n[bold cyan]Entering Interactive Mode. Type commands (e.g., 'ai-add \"task\"', 'insights'). Type 'exit' to quit.[/]\n")
-            if CLICK_REPL_AVAILABLE:
-                try:
-                    click_repl.repl(ctx)
-                except Exception as e:
-                    console.print(f"[yellow]REPL unavailable: {e}[/]")
-                    custom_repl(ctx)
-            else:
-                custom_repl(ctx)
+            custom_repl()
 
 # --- Core Commands ---
 
@@ -611,7 +607,11 @@ def insights():
 def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language description of the task")):
     """Add a task using natural language (Gemini)."""
     try:
-        check_and_run_gap_recovery()
+        try:
+            check_and_run_gap_recovery()
+        except Exception as gap_err:
+            console.print(f"[yellow]Gap recovery skipped: {gap_err}[/]")
+        
         prompt_str = " ".join(prompt)
         try:
             user_profile_json = trigger_ai_study()
@@ -627,17 +627,25 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
             return
 
         # Pretty Preview Card
-        preview_table = RichTable(show_header=False, box=box.SIMPLE_HEAD)
-        preview_table.add_column("Field", style="bold cyan")
-        preview_table.add_column("Value")
-        preview_table.add_row("Title", data.get('title'))
-        preview_table.add_row("Description", data.get('description', 'N/A'))
-        preview_table.add_row("Status", data.get('status', 'TODO'))
-        preview_table.add_row("Progress", f"{data.get('progress', 0)}%")
-        preview_table.add_row("Tags", data.get('tags', 'None'))
-        preview_table.add_row("Due Date", data.get('due_date', 'None'))
-        
-        console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
+        try:
+            from rich.table import box as table_box
+            preview_table = RichTable(show_header=False, box=table_box.SIMPLE_HEAD)
+            preview_table.add_column("Field", style="bold cyan")
+            preview_table.add_column("Value")
+            preview_table.add_row("Title", data.get('title'))
+            preview_table.add_row("Description", data.get('description', 'N/A'))
+            preview_table.add_row("Status", data.get('status', 'TODO'))
+            preview_table.add_row("Progress", f"{data.get('progress', 0)}%")
+            preview_table.add_row("Tags", data.get('tags', 'None'))
+            preview_table.add_row("Due Date", data.get('due_date', 'None'))
+            console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
+        except Exception as table_err:
+            console.print(f"[yellow]Title:[/] {data.get('title')}")
+            console.print(f"[yellow]Description:[/] {data.get('description', 'N/A')}")
+            console.print(f"[yellow]Status:[/] {data.get('status', 'TODO')}")
+            console.print(f"[yellow]Progress:[/] {data.get('progress', 0)}%")
+            console.print(f"[yellow]Tags:[/] {data.get('tags', 'None')}")
+            console.print(f"[yellow]Due Date:[/] {data.get('due_date', 'None')}")
 
         confirmed = True
         if os.environ.get("FLOWLOG_TUI_MODE") != "1":
@@ -652,8 +660,12 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
                     data.get('progress',0), tags_value, data.get('due_date','None'))
             console.print(f"[green]Task added successfully! (ID: {new_id})[/]")
             console.print(f"[dim]To revert, use 'delete {new_id}'[/]")
+    except click.exceptions.Abort:
+        console.print("[yellow]Task addition cancelled.[/]")
     except Exception as e:
+        import traceback
         console.print(f"[red]Error in ai-add: {e}[/]")
+        console.print(f"[red]Full traceback: {traceback.format_exc()}[/]")
         console.print("[dim]Check your API key and try again.[/]")
 
 @app.command("ai-summary")
@@ -690,7 +702,7 @@ def ai_summary():
 
 
     from rich.text import Text
-    console.print(Panel(Text(report), title="[BRAIN] AI Productivity Insights", border_style="cyan"))
+    console.print(Panel.fit(report, title="[BRAIN] AI Productivity Insights", border_style="cyan", padding=(1, 2)))
 
 @app.command("ai-rehydrate")
 def ai_rehydrate():

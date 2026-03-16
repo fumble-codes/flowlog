@@ -4,6 +4,7 @@ import typer
 from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
+from rich import box
 from ai_utils import get_gemini_model_for, smart_parse_task, infer_tags_local, ai_generate_content, AIApiError
 from db import get_last_log_date, add_log, get_db_connection, delete_log
 from utils import get_logical_date
