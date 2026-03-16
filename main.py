@@ -94,7 +94,7 @@ def trigger_ai_study(force: bool = False):
 
 # App Setup
 app = typer.Typer(help="Flowlog: A modern CLI project tracker with AI insights.", add_completion=False)
-console = Console()
+console = Console(color_system='truecolor', legacy_windows=False)
 
 # TUI Stability Patch: Disable live status if running inside Textual
 if os.environ.get("FLOWLOG_TUI_MODE") == "1":
