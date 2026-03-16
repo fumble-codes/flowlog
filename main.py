@@ -1,11 +1,5 @@
 import warnings
 import os
-import sys
-# Force UTF-8 output for Windows
-if sys.platform == 'win32':
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-os.environ['FORCE_COLOR'] = '1'
 # Suppress specific dependency and deprecation warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="requests")
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -14,6 +8,7 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 
 import typer 
 import click
+import os
 import pyfiglet
 import json
 import csv
@@ -99,7 +94,7 @@ def trigger_ai_study(force: bool = False):
 
 # App Setup
 app = typer.Typer(help="Flowlog: A modern CLI project tracker with AI insights.", add_completion=False)
-console = Console(color_system='truecolor')
+console = Console()
 
 # TUI Stability Patch: Disable live status if running inside Textual
 if os.environ.get("FLOWLOG_TUI_MODE") == "1":
@@ -543,7 +538,10 @@ def summary():
 @app.command("force-study")
 def force_study():
     """Manually force the AI to re-study all your logs and update your profile."""
-    with console.status("[bold blue]AI is performing a deep study of all your logs...[/]"):
+    try:
+        with console.status("[bold blue]AI is performing a deep study of all your logs...[/]"):
+            profile = trigger_ai_study(force=True)
+    except Exception:
         profile = trigger_ai_study(force=True)
     if profile:
         console.print("[bold green]Deep study complete! Your profile has been updated.[/]")
@@ -620,10 +618,13 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
         prompt_str = " ".join(prompt)
         try:
             user_profile_json = trigger_ai_study()
-            with console.status("[bold blue]AI parsing task...[/]"):
+            try:
+                with console.status("[bold blue]AI parsing task...[/]"):
+                    data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
+            except Exception:
                 data = smart_parse_task(prompt_str, user_profile_json=user_profile_json)
         except AIApiError as e:
-            console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
+            console.print(f"\n[bold red]AI Service Error:[/] {e}")
             return
 
         if not data:
@@ -698,12 +699,14 @@ def ai_summary():
         console.print("[yellow]Not enough data for AI analysis.[/]")
         return
 
-    with console.status("[bold magenta]AI analyzing your patterns...[/]"):
-        try:
+    try:
+        with console.status("[bold magenta]AI analyzing your patterns...[/]"):
             report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
-        except AIApiError as e:
-            console.print(f"\n[bold red]🧠 AI Service Error:[/] {e}")
-            return
+    except AIApiError as e:
+        console.print(f"\n[bold red]AI Service Error:[/] {e}")
+        return
+    except Exception:
+        report = generate_ai_summary(logs, user_profile_json=user_profile_json, time_context=time_context)
 
 
     from rich.text import Text
@@ -712,7 +715,10 @@ def ai_summary():
 @app.command("ai-rehydrate")
 def ai_rehydrate():
     """Convert 'Gap summary' entries into detailed multi-entry logs when AI becomes available."""
-    with console.status("[bold blue]Rehydrating gap summaries...[/]"):
+    try:
+        with console.status("[bold blue]Rehydrating gap summaries...[/]"):
+            count = rehydrate_gap_summaries()
+    except Exception:
         count = rehydrate_gap_summaries()
     if count:
         console.print(f"[green]Rehydrated {count} gap summaries into detailed logs.[/]")
