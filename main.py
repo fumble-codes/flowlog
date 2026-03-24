@@ -1,5 +1,13 @@
 import warnings
 import os
+import sys
+# Fix Windows console UTF-8 for emojis and Rich rendering
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 # Suppress specific dependency and deprecation warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="requests")
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -52,7 +60,10 @@ from db import (
     get_active_logs,
     update_tags,
     get_all_logs_with_tags,
-    get_logs_by_due_date
+    get_logs_by_due_date,
+    get_task_status_counts,
+    get_all_tasks,
+    get_all_journal_logs
 )
 from table_style import styled_table as Table, render_progress
 from validators import validate_title, validate_status
@@ -160,7 +171,7 @@ def home():
     """Flowlog Command Center Dashboard."""
     from utils import get_logical_date
     today_str = get_logical_date()
-    counts = get_status_counts()
+    counts = get_task_status_counts()
     due_today = get_due_on(today_str)
 
     # Dynamic ASCII logo
@@ -210,7 +221,7 @@ def home():
         console.print(due_table)
     
     # Urgent tasks
-    logs = get_all_logs_with_due()
+    logs = get_all_tasks()
     today = datetime.now().date()
     upcoming = []
     for row in logs:
@@ -279,9 +290,15 @@ def add():
     else:
         due_date = "None"
 
+    allowed_types = ("TASK", "LOG")
+    entry_type = typer.prompt("Is this a Task or a Journal Log? [TASK/LOG]", default="TASK").strip().upper()
+    while entry_type not in allowed_types:
+        console.print(f"[red]Type must be one of {allowed_types}.[/]")
+        entry_type = typer.prompt("Enter type", default="TASK").strip().upper()
+
     try:
-        new_id = add_log(title, description, status, progress, tags, due_date)
-        console.print(f"[green]Log added successfully! (ID: {new_id})[/]")
+        new_id = add_log(title, description, status, progress, tags, due_date, entry_type=entry_type.lower())
+        console.print(f"[green]{entry_type.capitalize()} added successfully! (ID: {new_id})[/]")
         console.print(f"[dim]Tip: Undo this with 'delete {new_id}'[/]")
     except Exception as e:
         console.print(f"[red]Failed to save log: {e}[/]")
@@ -310,15 +327,16 @@ def details(log_id: int = typer.Argument(None, help="Specific ID to show details
             # id, title, desc, status, progress, created, updated, tags, log_date
             id, title, desc, status, progress, created, updated, tags, event_date = log
         except:
-            id = log["id"]
-            title = log["title"]
-            desc = log["description"]
-            status = log["status"]
-            progress = log["progress"]
-            created = log["created_at"]
-            updated = log["updated_at"]
-            tags = log["tags"]
-            event_date = log.get("log_date")
+            id = log["id"] if hasattr(log, "keys") else log[0]
+            title = log["title"] if hasattr(log, "keys") else log[1]
+            desc = log["description"] if hasattr(log, "keys") else log[2]
+            status = log["status"] if hasattr(log, "keys") else log[3]
+            progress = log["progress"] if hasattr(log, "keys") else log[4]
+            created = log["created_at"] if hasattr(log, "keys") else log[5]
+            updated = log["updated_at"] if hasattr(log, "keys") else log[6]
+            tags = log["tags"] if hasattr(log, "keys") else log[7]
+            event_date = dict(log).get("log_date") if hasattr(log, "keys") else (log[8] if len(log) > 8 else None)
+
 
         panel_content = (
             f"📅 [bold cyan]Event Date:[/] {event_date or 'N/A'}\n"
@@ -337,8 +355,8 @@ def view(
     mode: str = typer.Option("compact", "--mode", "-m", help="compact or dense"),
     page_size: int = typer.Option(15, "--size", "-s", help="Logs per page")
 ):
-    """View logs with interactive pagination."""
-    rows = get_all_logs_with_due()
+    """View active tasks with interactive pagination."""
+    rows = get_all_tasks()
     if not rows:
         console.print("[bold yellow]No logs found.[/]")
         return
@@ -364,7 +382,58 @@ def view(
         console.clear()
         console.print(grouped_logs_table(entries, page=page, page_size=page_size, mode=mode, show_details=show_details))
         
-        cmd = typer.prompt("", prompt_suffix="[n/p/m/d/q] > ", default="q").lower().strip()
+        try:
+            cmd = typer.prompt("", prompt_suffix="[n/p/m/d/q] > ", default="q").lower().strip()
+        except Exception:
+            cmd = "q"
+        
+        if cmd == "n":
+            page += 1
+        elif cmd == "p":
+            page -= 1
+        elif cmd == "m":
+            mode = "dense" if mode == "compact" else "compact"
+        elif cmd == "d":
+            show_details = not show_details
+        elif cmd == "q":
+            break
+
+@app.command()
+def journal(
+    mode: str = typer.Option("compact", "--mode", "-m", help="compact or dense"),
+    page_size: int = typer.Option(15, "--size", "-s", help="Logs per page")
+):
+    """View chronological journal logs with interactive pagination."""
+    rows = get_all_journal_logs()
+    if not rows:
+        console.print("[bold yellow]No journal logs found.[/]")
+        return
+
+    # Convert tuples to dicts for the UI component
+    entries = []
+    for r in rows:
+        # r: id, title, description, status, progress, created_at, updated_at, tags, log_date, entry_type
+        entries.append({
+            "id": r["id"],
+            "title": r[1],
+            "description": r[2],
+            "status": r[3],
+            "progress": r[4],
+            "tags": r[7].split(",") if r[7] else [],
+            "date": r[8] or "Unknown"
+        })
+
+    page = 1
+    show_details = (mode == "dense")
+    
+    while True:
+        console.clear()
+        console.print(grouped_logs_table(entries, page=page, page_size=page_size, mode=mode, show_details=show_details))
+        
+        try:
+            cmd = typer.prompt("", prompt_suffix="[n/p/m/d/q] > ", default="q").lower().strip()
+        except Exception:
+            cmd = "q"
         
         if cmd == "n":
             page += 1
@@ -506,7 +575,7 @@ def dashboard():
 @app.command()
 def summary():
     """Project statistics summary."""
-    counts = get_status_counts()
+    counts = get_task_status_counts()
     total = sum(counts.values())
     if total == 0:
         console.print("[yellow]No tasks to summarize.[/]")
@@ -638,6 +707,7 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
             preview_table = RichTable(show_header=False, box=table_box.SIMPLE_HEAD)
             preview_table.add_column("Field", style="bold cyan")
             preview_table.add_column("Value")
+            preview_table.add_row("Type", data.get('entry_type', 'task').upper())
             preview_table.add_row("Title", data.get('title'))
             preview_table.add_row("Description", data.get('description', 'N/A'))
             preview_table.add_row("Status", data.get('status', 'TODO'))
@@ -646,6 +716,7 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
             preview_table.add_row("Due Date", data.get('due_date', 'None'))
             console.print(Panel(preview_table, title="[bold green]AI Suggestion Preview[/]", border_style="green"))
         except Exception as table_err:
+            console.print(f"[yellow]Type:[/] {data.get('entry_type', 'task').upper()}")
             console.print(f"[yellow]Title:[/] {data.get('title')}")
             console.print(f"[yellow]Description:[/] {data.get('description', 'N/A')}")
             console.print(f"[yellow]Status:[/] {data.get('status', 'TODO')}")
@@ -655,7 +726,7 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
 
         confirmed = True
         if os.environ.get("FLOWLOG_TUI_MODE") != "1":
-            confirmed = typer.confirm("Confirm and add this task?", default=True)
+            confirmed = typer.confirm("Confirm and add this item?", default=True)
             
         if confirmed:
             tags_value = data.get('tags','')
@@ -663,8 +734,8 @@ def ai_add(prompt: list[str] = typer.Argument(..., help="Natural language descri
                 tags_list = infer_tags_local(data.get('description',''))
                 tags_value = ",".join(tags_list)
             new_id = add_log(data['title'], data.get('description',''), data.get('status','TODO'), 
-                    data.get('progress',0), tags_value, data.get('due_date','None'))
-            console.print(f"[green]Task added successfully! (ID: {new_id})[/]")
+                    data.get('progress',0), tags_value, data.get('due_date','None'), entry_type=data.get('entry_type', 'task'))
+            console.print(f"[green]Item added successfully! (ID: {new_id})[/]")
             console.print(f"[dim]To revert, use 'delete {new_id}'[/]")
     except click.exceptions.Abort:
         console.print("[yellow]Task addition cancelled.[/]")
